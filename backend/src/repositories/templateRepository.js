@@ -296,3 +296,118 @@ export async function restoreTemplate(id, userId) {
 
   return { id, is_active: true, archived_at: null };
 }
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isCompleteSnapshot(snapshot) {
+  if (!snapshot || typeof snapshot !== 'object') return false;
+  const hasSubject = typeof snapshot.subject === 'string' && snapshot.subject.trim().length > 0;
+  const hasHtml = typeof snapshot.html_content === 'string' && snapshot.html_content.trim().length > 0;
+  const hasText = typeof snapshot.text_content === 'string' && snapshot.text_content.trim().length > 0;
+  return hasSubject && (hasHtml || hasText);
+}
+
+/**
+ * Permanently deletes an email template and its owned template_versions via atomic PostgreSQL RPC.
+ * Blocks deletion (HTTP 409) if any campaign depends on the live template without a complete snapshot.
+ * Never cascade-deletes historical campaigns, recipients, or email attempts.
+ */
+export async function permanentDeleteTemplate(id, userId) {
+  if (!id || !UUID_REGEX.test(String(id).trim())) {
+    throw {
+      statusCode: 400,
+      code: 'INVALID_TEMPLATE_ID',
+      message: 'Invalid template ID format. Expected a valid UUID.',
+    };
+  }
+
+  const normalizedId = String(id).trim();
+
+  const { data: rpcResult, error: rpcError } = await supabaseAdmin.rpc('delete_email_template_permanently', {
+    p_template_id: normalizedId,
+    p_admin_id: userId || null,
+  });
+
+  if (!rpcError) {
+    if (!rpcResult || rpcResult.success === false) {
+      const code = rpcResult?.code || 'TEMPLATE_DELETE_BLOCKED';
+      const statusCode = rpcResult?.status || (code === 'TEMPLATE_NOT_FOUND' ? 404 : 409);
+      throw {
+        statusCode,
+        code,
+        message: rpcResult?.error || 'Template cannot be permanently deleted.',
+        details: rpcResult,
+      };
+    }
+
+    return {
+      id: rpcResult.deleted_id || normalizedId,
+      name: rpcResult.name,
+      version: rpcResult.version || 1,
+      detached_campaigns: rpcResult.detached_campaigns || 0,
+      deleted_versions: rpcResult.deleted_versions || 0,
+    };
+  }
+
+  // Fallback ONLY if RPC function was not yet migrated into schema cache (PGRST202)
+  if (rpcError.code !== 'PGRST202') {
+    throw createDatabaseError('permanentDeleteTemplate.rpc', rpcError);
+  }
+
+  const current = await getTemplateById(normalizedId);
+  if (!current) {
+    throw { statusCode: 404, code: 'TEMPLATE_NOT_FOUND', message: 'Email template not found or already deleted.' };
+  }
+
+  const { data: linkedCampaigns, error: campErr } = await supabaseAdmin
+    .from('campaigns')
+    .select('id, status, template_snapshot')
+    .eq('template_id', normalizedId);
+
+  if (campErr) {
+    throw createDatabaseError('permanentDeleteTemplate.campaignsCheck', campErr);
+  }
+
+  const unsafeCampaigns = (linkedCampaigns || []).filter((c) => !isCompleteSnapshot(c.template_snapshot));
+  if (unsafeCampaigns.length > 0) {
+    throw {
+      statusCode: 409,
+      code: 'TEMPLATE_IN_USE_WITHOUT_SNAPSHOT',
+      message: `Cannot permanently delete "${current.name}": ${unsafeCampaigns.length} campaign(s) still reference the live template without a complete immutable snapshot.`,
+    };
+  }
+
+  if ((linkedCampaigns || []).length > 0) {
+    const { error: detachErr } = await supabaseAdmin
+      .from('campaigns')
+      .update({ template_id: null, updated_at: new Date().toISOString() })
+      .eq('template_id', normalizedId);
+    if (detachErr) {
+      throw createDatabaseError('permanentDeleteTemplate.detachCampaigns', detachErr);
+    }
+  }
+
+  const { error: delVerErr } = await supabaseAdmin
+    .from('template_versions')
+    .delete()
+    .eq('template_id', normalizedId);
+  if (delVerErr && delVerErr.code !== 'PGRST205') {
+    throw createDatabaseError('permanentDeleteTemplate.deleteVersions', delVerErr);
+  }
+
+  const { error: delTplErr } = await supabaseAdmin
+    .from('email_templates')
+    .delete()
+    .eq('id', normalizedId);
+  if (delTplErr) {
+    throw createDatabaseError('permanentDeleteTemplate.deleteTemplate', delTplErr);
+  }
+
+  return {
+    id: normalizedId,
+    name: current.name,
+    version: current.version || 1,
+    detached_campaigns: (linkedCampaigns || []).length,
+    deleted_versions: Array.isArray(current.versions) ? current.versions.length : 0,
+  };
+}

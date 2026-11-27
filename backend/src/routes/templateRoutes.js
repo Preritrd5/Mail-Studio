@@ -18,4 +18,5 @@ templateRouter.put('/templates/:id', requireAdminAuth, templateCtrl.updateTempla
 templateRouter.post('/templates/:id/duplicate', requireAdminAuth, templateCtrl.duplicateTemplate);
 templateRouter.patch('/templates/:id/archive', requireAdminAuth, templateCtrl.archiveTemplate);
 templateRouter.patch('/templates/:id/restore', requireAdminAuth, templateCtrl.restoreTemplate);
+templateRouter.delete('/templates/:id', requireAdminAuth, templateCtrl.deleteTemplate);
 templateRouter.post('/templates/:id/preview', requireAdminAuth, templateCtrl.previewTemplate);

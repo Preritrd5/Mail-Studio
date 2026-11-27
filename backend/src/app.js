@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
@@ -18,6 +19,18 @@ export const app = express();
 
 // Trust Vercel / reverse proxy X-Forwarded-For headers for accurate rate limiting
 app.set('trust proxy', 1);
+
+// Attach request correlation ID for diagnostics and structured error payloads
+app.use((req, res, next) => {
+  const incomingId = req.headers['x-request-id'];
+  const requestId =
+    incomingId && typeof incomingId === 'string' && incomingId.trim().length > 0
+      ? incomingId.trim().slice(0, 64)
+      : `req_${crypto.randomUUID().slice(0, 12)}`;
+  req.requestId = requestId;
+  res.setHeader('X-Request-Id', requestId);
+  next();
+});
 
 // 1. Security Headers via Helmet
 app.use(helmet());
@@ -83,6 +96,7 @@ app.use('/api', (req, res, next) => {
       error: {
         code: 'SERVER_CONFIG_MISSING',
         message: `Backend Supabase environment variables are not configured in this deployment: ${missing.join(', ')}. Add them in Vercel Project Settings -> Environment Variables and redeploy.`,
+        requestId: req.requestId,
       },
     });
   }

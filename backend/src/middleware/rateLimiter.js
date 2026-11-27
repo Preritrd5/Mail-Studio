@@ -5,13 +5,14 @@ export const emailRateLimiter = rateLimit({
   max: 60, // Limit each IP to 60 requests per windowMs
   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-  message: {
+  message: (req) => ({
     success: false,
     error: {
       code: 'RATE_LIMIT_EXCEEDED',
       message: 'Too many email requests from this IP. Please try again after 1 minute.',
+      requestId: req.requestId,
     },
-  },
+  }),
 });
 
 export const apiRateLimiter = rateLimit({
@@ -19,11 +20,12 @@ export const apiRateLimiter = rateLimit({
   max: 300, // Limit each IP to 300 requests per 15 minutes
   standardHeaders: true,
   legacyHeaders: false,
-  message: {
+  message: (req) => ({
     success: false,
     error: {
       code: 'RATE_LIMIT_EXCEEDED',
       message: 'Too many requests from this IP. Please try again later.',
+      requestId: req.requestId,
     },
-  },
+  }),
 });

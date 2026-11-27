@@ -12,6 +12,9 @@ export async function initializeIndividualEmailRecords({
   recipientEmail,
   userId,
   idempotencyKey,
+  templateId = null,
+  templateVersion = null,
+  templateSnapshot = null,
 }) {
   const campaignId = crypto.randomUUID();
   const recipientId = crypto.randomUUID();
@@ -24,6 +27,9 @@ export async function initializeIndividualEmailRecords({
     campaign_name: campaignName,
     campaign_type: 'individual',
     subject,
+    template_id: templateId || null,
+    template_version: templateVersion || null,
+    template_snapshot: templateSnapshot || null,
     status: 'running',
     total_recipients: 1,
     pending_count: 1,

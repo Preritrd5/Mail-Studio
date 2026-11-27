@@ -454,7 +454,9 @@ export const DashboardView: React.FC = () => {
                 <div className="flex items-center justify-between gap-3 py-1.5 border-b border-[#CBD5E1]">
                   <span className="text-[#64748B] shrink-0">SMTP Transport</span>
                   <span className="font-mono font-medium text-[#1E293B] truncate" title={systemStatus?.smtp?.configured ? `${systemStatus.smtp.host}:465` : undefined}>
-                    {systemStatus?.smtp?.configured ? `${systemStatus.smtp.host}:465` : 'Not verified'}
+                    {systemStatus?.smtp?.configured
+                      ? `${systemStatus.smtp.host} (${systemStatus.smtp.verified ? 'Verified' : 'Configured'})`
+                      : 'Not configured'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between gap-3 py-1.5 border-b border-[#CBD5E1]">

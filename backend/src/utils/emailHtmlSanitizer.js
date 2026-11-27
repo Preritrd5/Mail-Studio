@@ -1,5 +1,20 @@
 import sanitizeHtml from 'sanitize-html';
 
+const UNSAFE_CSS_PATTERN = /(@import|expression\s*\(|javascript:|vbscript:|behavior\s*:|url\s*\(|<|>)/i;
+
+/**
+ * Sanitizes inline style attribute declarations, stripping unsafe CSS functions or URLs
+ * while retaining safe email styling (colors, typography, layout, spacing, borders).
+ */
+function sanitizeInlineStyleAttribute(rawStyle) {
+  if (!rawStyle || typeof rawStyle !== 'string') return '';
+  return rawStyle
+    .split(';')
+    .map((decl) => decl.trim())
+    .filter((decl) => decl && decl.includes(':') && !UNSAFE_CSS_PATTERN.test(decl))
+    .join('; ');
+}
+
 /**
  * Shared HTML sanitization configuration preserving table-based email layouts,
  * inline CSS, CID inline logo references, and responsive styles while stripping
@@ -23,6 +38,19 @@ export const EMAIL_SANITIZE_OPTIONS = {
     'th': ['align', 'valign', 'width', 'height', 'colspan', 'rowspan', 'bgcolor', 'style', 'class'],
     '*': ['style', 'class', 'align', 'id']
   },
+  transformTags: {
+    '*': (tagName, attribs) => {
+      if (attribs && attribs.style) {
+        const cleanStyle = sanitizeInlineStyleAttribute(attribs.style);
+        if (cleanStyle) {
+          attribs.style = cleanStyle;
+        } else {
+          delete attribs.style;
+        }
+      }
+      return { tagName, attribs };
+    },
+  },
   allowedSchemes: ['http', 'https', 'mailto', 'cid'],
   allowProtocolRelative: false,
   disallowedTagsMode: 'discard',
@@ -36,10 +64,10 @@ export const EMAIL_SANITIZE_OPTIONS = {
 function sanitizeEmailCssBlock(rawCss) {
   if (!rawCss || typeof rawCss !== 'string') return '';
   // Block dangerous CSS constructs: external imports, expressions, javascript URLs, behaviors, HTML tag breakouts
-  if (/(@import|expression\s*\(|javascript:|vbscript:|behavior\s*:|url\s*\(|<|>)/i.test(rawCss)) {
+  if (UNSAFE_CSS_PATTERN.test(rawCss)) {
     // Strip offending lines/rules defensively rather than keeping unsafe CSS
     const lines = rawCss.split('\n').filter(
-      (line) => !/(@import|expression\s*\(|javascript:|vbscript:|behavior\s*:|url\s*\(|<|>)/i.test(line)
+      (line) => !UNSAFE_CSS_PATTERN.test(line)
     );
     return lines.join('\n').trim();
   }

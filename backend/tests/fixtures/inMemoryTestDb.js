@@ -896,6 +896,83 @@ export function createTestSupabaseClient(seedMode = 'empty') {
         return { data: { success: true }, error: null };
       }
 
+      if (fnName === 'delete_email_template_permanently') {
+        const { p_template_id, p_admin_id } = params;
+        const tplIdx = (store.email_templates || []).findIndex((t) => t.id === p_template_id);
+        if (tplIdx === -1) {
+          return {
+            data: {
+              success: false,
+              status: 404,
+              code: 'TEMPLATE_NOT_FOUND',
+              error: 'Email template not found or already deleted.',
+            },
+            error: null,
+          };
+        }
+
+        const tpl = store.email_templates[tplIdx];
+        const linked = (store.campaigns || []).filter((c) => c.template_id === p_template_id);
+        const unsafe = linked.filter((c) => {
+          const snap = c.template_snapshot;
+          return !snap || !snap.subject || (!snap.html_content && !snap.text_content);
+        });
+
+        if (unsafe.length > 0) {
+          return {
+            data: {
+              success: false,
+              status: 409,
+              code: 'TEMPLATE_IN_USE_WITHOUT_SNAPSHOT',
+              unsafe_campaigns_count: unsafe.length,
+              error: `Cannot permanently delete "${tpl.name}": ${unsafe.length} campaign(s) still reference the live template without a complete immutable snapshot.`,
+            },
+            error: null,
+          };
+        }
+
+        for (const camp of linked) {
+          camp.template_id = null;
+          camp.updated_at = new Date().toISOString();
+        }
+
+        const beforeVerCount = (store.template_versions || []).length;
+        store.template_versions = (store.template_versions || []).filter((v) => v.template_id !== p_template_id);
+        const deletedVersionsCount = beforeVerCount - store.template_versions.length;
+        store.email_templates.splice(tplIdx, 1);
+
+        store.queue_events = store.queue_events || [];
+        store.queue_events.push({
+          id: crypto.randomUUID(),
+          campaign_id: null,
+          recipient_id: null,
+          worker_id: null,
+          event_type: 'template_permanently_deleted',
+          event_details: {
+            template_id: tpl.id,
+            template_name: tpl.name,
+            template_version: tpl.version || 1,
+            detached_campaigns: linked.length,
+            deleted_versions: deletedVersionsCount,
+            actor_id: p_admin_id || null,
+          },
+          created_by: p_admin_id || null,
+          created_at: new Date().toISOString(),
+        });
+
+        return {
+          data: {
+            success: true,
+            deleted_id: tpl.id,
+            name: tpl.name,
+            version: tpl.version || 1,
+            detached_campaigns: linked.length,
+            deleted_versions: deletedVersionsCount,
+          },
+          error: null,
+        };
+      }
+
       if (fnName === 'get_reports_overview_summary') {
         const camps = store.campaigns;
         const recips = store.campaign_recipients;

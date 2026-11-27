@@ -61,14 +61,16 @@ export const SendingQueueView: React.FC = () => {
   // 5-Second Interval Live Countdown
   const [countdownSeconds, setCountdownSeconds] = useState<number>(0);
 
-  // Concurrency guard to prevent overlapping polling
+  // Concurrency & selection refs to prevent duplicate initial/polling calls
   const isFetchingRef = React.useRef<boolean>(false);
+  const selectedCampaignIdRef = React.useRef<string | null>(selectedCampaignId);
+  selectedCampaignIdRef.current = selectedCampaignId;
 
   // Load Queue Status
   const loadQueueData = useCallback(async (isSilent = false) => {
     if (isAuthLoading) return;
 
-    if (!user) {
+    if (!user?.id) {
       setWorker(null);
       setCampaigns([]);
       setSelectedCampaignId(null);
@@ -97,12 +99,15 @@ export const SendingQueueView: React.FC = () => {
       setSyncStatusCode(undefined);
       setSyncErrorCode(undefined);
 
-      // Select first campaign if none selected or if previously selected is missing
-      const targetId = selectedCampaignId && statusData.active_campaigns.some(c => c.id === selectedCampaignId)
-        ? selectedCampaignId
+      // Preserve currently chosen campaign if still active, else select the first active batch
+      const currentSelected = selectedCampaignIdRef.current;
+      const targetId = currentSelected && statusData.active_campaigns.some(c => c.id === currentSelected)
+        ? currentSelected
         : statusData.active_campaigns[0]?.id || null;
 
-      setSelectedCampaignId(targetId);
+      if (targetId !== currentSelected) {
+        setSelectedCampaignId(targetId);
+      }
 
       if (targetId) {
         const details = await queueService.getCampaignDetails(targetId);
@@ -130,21 +135,23 @@ export const SendingQueueView: React.FC = () => {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [isAuthLoading, user?.id, selectedCampaignId]);
+  }, [isAuthLoading, user?.id]);
 
   // Initial load
   useEffect(() => {
     loadQueueData();
   }, [loadQueueData]);
 
-  // Poll every 3 seconds ONLY while synced and authenticated with active work
+  // Poll only while synced and authenticated (3s during active dispatches, 10s when idle)
+  const hasActiveQueueWork = campaigns.some(c => ['running', 'queued', 'needs_review'].includes(c.status));
   useEffect(() => {
-    if (!user || syncStatus !== 'synced') return;
+    if (!user?.id || syncStatus !== 'synced') return;
+    const intervalMs = hasActiveQueueWork || worker?.healthy ? 3000 : 10000;
     const timer = setInterval(() => {
       loadQueueData(true);
-    }, 3000);
+    }, intervalMs);
     return () => clearInterval(timer);
-  }, [user?.id, syncStatus, loadQueueData]);
+  }, [user?.id, syncStatus, hasActiveQueueWork, worker?.healthy, loadQueueData]);
 
   // Calculate 5-second interval countdown every 500ms
   useEffect(() => {

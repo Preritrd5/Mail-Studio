@@ -238,6 +238,17 @@ export async function renderEmailFromTemplate({
     templateId: resolvedTemplate?.id || templateId || null,
     templateVersion: resolvedTemplate?.version || templateVersion || null,
     templateName: resolvedTemplate?.name || 'Custom Email',
+    templateSnapshot: resolvedTemplate
+      ? {
+          id: resolvedTemplate.id,
+          name: resolvedTemplate.name,
+          category: resolvedTemplate.category || 'General Notifications',
+          version: resolvedTemplate.version || 1,
+          subject: resolvedTemplate.subject,
+          html_content: resolvedTemplate.html_content,
+          text_content: resolvedTemplate.text_content || '',
+        }
+      : null,
     renderedSubject,
     renderedHtml,
     renderedText,

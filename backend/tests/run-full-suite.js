@@ -9,6 +9,7 @@ const testSuites = [
   { name: 'Gmail HTML Rendering, Inline CID Assets & MIME Verification', file: 'backend/tests/gmail-rendering.test.js', count: 10 },
   { name: 'Queue Sync, Defensive Routing & Auth Guards', file: 'backend/tests/test-queue-sync-and-preview.js', count: 5 },
   { name: 'Production Data Hygiene, Fail-Closed DB & Zero Fallback Audit', file: 'backend/tests/audit-production-hygiene.test.js', count: 10 },
+  { name: 'Production API Contract, Auth Session, Error & CORS Verification', file: 'backend/tests/production-api-verification.test.js', count: 13 },
 ];
 
 console.log('================================================================');

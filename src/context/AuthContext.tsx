@@ -104,11 +104,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser(authUser);
         setSession(authSession);
 
-        const { isAdmin: adminStatus, profile } = await AuthService.verifyAdminStatus(authUser);
+        const { isAdmin: adminStatus, profile, error: verifyError } = await AuthService.verifyAdminStatus(authUser);
         setIsAdmin(adminStatus);
         setAdminProfile(profile);
-        setIsAuthModalOpen(false);
         setIsLoading(false);
+
+        if (!adminStatus) {
+          return {
+            success: false,
+            error: verifyError || 'Signed in, but this account is not authorized as an administrator.',
+          };
+        }
+
+        setIsAuthModalOpen(false);
         return { success: true };
       }
 

@@ -56,40 +56,33 @@ export class AuthService {
   }
 
   /**
-   * Verify administrator authorization via backend /api/auth/session
-   * (avoids browser REST requests to public.admin_users that throw 404 before schema init).
+   * Verify administrator authorization strictly via backend /api/auth/session.
+   * Never trusts editable user_metadata, email substrings, or browser-only flags.
    */
-  public static async verifyAdminStatus(user: User): Promise<{ isAdmin: boolean; profile: AdminProfile | null }> {
+  public static async verifyAdminStatus(user: User): Promise<{ isAdmin: boolean; profile: AdminProfile | null; error?: string }> {
     if (!user) {
       return { isAdmin: false, profile: null };
     }
 
-    const fallbackIsAdmin = Boolean(
-      user.user_metadata?.role === 'administrator' ||
-      (user.email && (user.email.toLowerCase().includes('admin') || user.email.toLowerCase().includes('snpsunexus')))
-    );
-    const fallbackProfile: AdminProfile | null = fallbackIsAdmin
-      ? {
-          userId: user.id,
-          displayName: user.user_metadata?.display_name || user.email?.split('@')[0] || 'Administrator',
-          email: user.email || '',
-        }
-      : null;
-
     try {
-      const res = await fetchApiEnvelope<{ isAdmin: boolean; profile: AdminProfile | null }>('/auth/session');
-      if (res.success && res.data?.isAdmin) {
+      const res = await fetchApiEnvelope<{ authenticated?: boolean; isAdmin: boolean; profile: AdminProfile | null }>('/auth/session');
+      if (res.success && res.data?.authenticated && res.data?.isAdmin) {
         return {
           isAdmin: true,
-          profile: res.data.profile || fallbackProfile,
+          profile: res.data.profile || {
+            userId: user.id,
+            displayName: user.user_metadata?.display_name || user.email?.split('@')[0] || 'Administrator',
+            email: user.email || '',
+          },
         };
       }
-      return { isAdmin: false, profile: null };
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 403) {
-        return { isAdmin: false, profile: null };
-      }
-      return { isAdmin: fallbackIsAdmin, profile: fallbackProfile };
+      return { isAdmin: false, profile: null, error: 'Account lacks Certified Administrator authorization.' };
+    } catch (err: any) {
+      return {
+        isAdmin: false,
+        profile: null,
+        error: err instanceof ApiError ? err.message : 'Unable to verify administrator session with backend.',
+      };
     }
   }
 }

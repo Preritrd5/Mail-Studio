@@ -32,6 +32,7 @@ export async function executeSendIndividualEmail(rawPayload, user) {
   let finalText = sanitized.text_content || '';
   let resolvedTemplateId = sanitized.template_id;
   let resolvedTemplateVersion = sanitized.template_version;
+  let resolvedTemplateSnapshot = null;
   let renderDiagnostics = {};
 
   if (sanitized.template_id) {
@@ -52,6 +53,7 @@ export async function executeSendIndividualEmail(rawPayload, user) {
     finalText = rendered.renderedText;
     resolvedTemplateId = rendered.templateId;
     resolvedTemplateVersion = rendered.templateVersion;
+    resolvedTemplateSnapshot = rendered.templateSnapshot || null;
     renderDiagnostics = rendered.diagnostics;
   } else {
     // Non-template custom email path: STILL enforce placeholder interpolation & no unresolved {{tokens}}
@@ -111,6 +113,9 @@ export async function executeSendIndividualEmail(rawPayload, user) {
     recipientEmail: sanitized.recipient_email,
     userId,
     idempotencyKey: sanitized.idempotency_key,
+    templateId: resolvedTemplateId || null,
+    templateVersion: resolvedTemplateVersion || null,
+    templateSnapshot: resolvedTemplateSnapshot || null,
   });
 
   // 5.5. Check SMTP Dispatch concurrency coordinator

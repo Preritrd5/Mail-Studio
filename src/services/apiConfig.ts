@@ -106,6 +106,8 @@ export async function parseApiEnvelope<T = any>(response: Response): Promise<Api
   return json as ApiEnvelope<T>;
 }
 
+const inFlightGetRequests = new Map<string, Promise<ApiEnvelope<any>>>();
+
 export async function fetchApiEnvelope<T = any>(
   endpoint: string,
   options: RequestInit = {},
@@ -121,21 +123,42 @@ export async function fetchApiEnvelope<T = any>(
     ...((options.headers as Record<string, string>) || {}),
   };
 
-  let res: Response;
-  try {
-    res = await fetch(getApiUrl(endpoint), {
-      ...options,
-      headers: mergedHeaders,
-    });
-  } catch (networkErr: any) {
-    throw new ApiError(
-      networkErr?.message || 'Unable to reach SNPSUNEXUS backend service.',
-      503,
-      'NETWORK_UNAVAILABLE'
-    );
+  const url = getApiUrl(endpoint);
+  const method = (options.method || 'GET').toUpperCase();
+  const canDeduplicate = method === 'GET' && !options.signal;
+  const dedupKey = canDeduplicate ? `${url}::${authHeaders.Authorization.slice(-24)}` : '';
+
+  if (canDeduplicate && inFlightGetRequests.has(dedupKey)) {
+    return inFlightGetRequests.get(dedupKey) as Promise<ApiEnvelope<T>>;
   }
 
-  return parseApiEnvelope<T>(res);
+  const exec = async (): Promise<ApiEnvelope<T>> => {
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        ...options,
+        headers: mergedHeaders,
+      });
+    } catch (networkErr: any) {
+      throw new ApiError(
+        networkErr?.message || 'Unable to reach SNPSUNEXUS backend service.',
+        503,
+        'NETWORK_UNAVAILABLE'
+      );
+    }
+
+    return parseApiEnvelope<T>(res);
+  };
+
+  if (!canDeduplicate) {
+    return exec();
+  }
+
+  const pending = exec().finally(() => {
+    inFlightGetRequests.delete(dedupKey);
+  });
+  inFlightGetRequests.set(dedupKey, pending);
+  return pending;
 }
 
 export async function fetchApiBlob(endpoint: string): Promise<Blob> {

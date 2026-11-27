@@ -231,13 +231,18 @@ export class ReportsRepository {
   }
 
   async getTimelineMetrics(param = 7) {
-    const days = typeof param === 'number' ? param : param?.days || 7;
-    const startDate = new Date(Date.now() - (days - 1) * 86400000).toISOString();
+    const rawDays = typeof param === 'number' ? param : param?.days;
+    const days = Math.min(365, Math.max(1, parseInt(rawDays, 10) || 7));
+    const startUtcMidnight = new Date(Date.UTC(
+      new Date().getUTCFullYear(),
+      new Date().getUTCMonth(),
+      new Date().getUTCDate() - (days - 1)
+    )).toISOString();
 
     const { data: recips, error } = await supabaseAdmin
       .from('campaign_recipients')
       .select('status, sent_at, created_at')
-      .gte('created_at', startDate);
+      .gte('created_at', startUtcMidnight);
 
     if (error) {
       throw createDatabaseError('ReportsRepository.getTimelineMetrics', error);
@@ -245,7 +250,11 @@ export class ReportsRepository {
 
     const map = {};
     for (let i = 0; i < days; i++) {
-      const d = new Date(Date.now() - (days - 1 - i) * 86400000).toISOString().substring(0, 10);
+      const d = new Date(Date.UTC(
+        new Date().getUTCFullYear(),
+        new Date().getUTCMonth(),
+        new Date().getUTCDate() - (days - 1 - i)
+      )).toISOString().substring(0, 10);
       map[d] = { date: d, sent: 0, failed: 0, outcome_unknown: 0 };
     }
 

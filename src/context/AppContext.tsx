@@ -174,9 +174,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     [removeToast]
   );
 
+  const userId = user?.id ?? null;
+
   // Fetch templates from real backend API only
   const refreshTemplates = useCallback(async () => {
-    if (!user) {
+    if (!userId) {
       setTemplates([]);
       setTemplateLoadState({
         status: 'auth_required',
@@ -214,11 +216,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     setIsLoadingTemplates(false);
-  }, [user]);
+  }, [userId]);
 
   // Refresh sidebar pending count strictly from live /api/queue when authenticated
   const refreshQueueBadge = useCallback(async () => {
-    if (!user) {
+    if (!userId) {
       setQueueState(EMPTY_QUEUE_STATE);
       return;
     }
@@ -263,13 +265,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch {
       setQueueState(EMPTY_QUEUE_STATE);
     }
-  }, [user]);
+  }, [userId]);
 
   useEffect(() => {
     if (isAuthLoading) return;
     refreshTemplates();
     refreshQueueBadge();
-  }, [isAuthLoading, user?.id, refreshTemplates, refreshQueueBadge]);
+  }, [isAuthLoading, refreshTemplates, refreshQueueBadge]);
 
   // Navigation handlers
   const navigateTo = useCallback((section: NavigationSection) => {

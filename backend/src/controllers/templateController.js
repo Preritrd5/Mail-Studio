@@ -144,6 +144,32 @@ export async function restoreTemplate(req, res, next) {
   }
 }
 
+export async function deleteTemplate(req, res, next) {
+  try {
+    const { id } = req.params;
+    if (req.body && Object.prototype.hasOwnProperty.call(req.body, 'admin_id')) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'FORBIDDEN_ACTOR_OVERRIDE',
+          message: 'Client-supplied admin_id is not allowed. Actor identity is derived from verified authentication.',
+        },
+      });
+    }
+
+    const userId = req.user?.id;
+    const result = await templateRepo.permanentDeleteTemplate(id, userId);
+
+    return res.status(200).json({
+      success: true,
+      message: `Template "${result.name}" (v${result.version}) permanently deleted. Historical campaign snapshots and audit logs remain preserved.`,
+      data: result,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function previewTemplate(req, res, next) {
   try {
     const { id } = req.params;
