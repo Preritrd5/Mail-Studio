@@ -150,6 +150,7 @@ export const ComposeEmailView: React.FC = () => {
   const [selectedTemplateVersion, setSelectedTemplateVersion] = useState<number | null>(null);
   const [selectedTemplateName, setSelectedTemplateName] = useState('');
   const [customHtmlTemplate, setCustomHtmlTemplate] = useState<string | null>(null);
+  const [templateRemovedNotice, setTemplateRemovedNotice] = useState<string | null>(null);
 
   const [activeTab, setActiveTab] = useState<'editor' | 'preview'>('editor');
   const [isSending, setIsSending] = useState(false);
@@ -220,6 +221,7 @@ export const ComposeEmailView: React.FC = () => {
     setSubject(effectiveTemplate.subject);
     setMessageBody(effectiveTemplate.text_content || effectiveTemplate.contentPreview || '');
     setCustomHtmlTemplate(effectiveTemplate.html_content || null);
+    setTemplateRemovedNotice(null);
 
     addToast({
       type: 'info',
@@ -244,6 +246,28 @@ export const ComposeEmailView: React.FC = () => {
     setSelectedComposeTemplateVersion,
     applyTemplateById,
   ]);
+
+  // Preserve unsent draft cleanly if an attached template is permanently deleted elsewhere
+  useEffect(() => {
+    if (
+      selectedTemplateId &&
+      templateLoadState.status === 'loaded' &&
+      !templates.some((t) => t.id === selectedTemplateId)
+    ) {
+      const removedName = selectedTemplateName || 'Previously attached template';
+      setSelectedTemplateId('');
+      setSelectedTemplateVersion(null);
+      setSelectedTemplateName('');
+      setTemplateRemovedNotice(
+        `"${removedName}" was permanently deleted from Email Templates. Your draft subject and HTML/text body were preserved as custom content.`
+      );
+      addToast({
+        type: 'warning',
+        title: 'Template No Longer Saved',
+        message: `"${removedName}" was deleted, but your active email draft has been preserved.`,
+      });
+    }
+  }, [selectedTemplateId, selectedTemplateName, templateLoadState.status, templates, addToast]);
 
   // Validation errors
   const [errors, setErrors] = useState<{ recipient?: string; recipientName?: string; subject?: string; body?: string }>({});
@@ -453,6 +477,7 @@ export const ComposeEmailView: React.FC = () => {
     setSelectedTemplateVersion(null);
     setSelectedTemplateName('');
     setCustomHtmlTemplate(null);
+    setTemplateRemovedNotice(null);
     setErrors({});
     addToast({
       type: 'info',
@@ -606,6 +631,19 @@ export const ComposeEmailView: React.FC = () => {
                     title="Detach template and send custom free-form email instead"
                   >
                     <Unlink size={12} /> Detach
+                  </button>
+                </div>
+              )}
+
+              {templateRemovedNotice && (
+                <div className="p-3 rounded-xl bg-amber-50 border border-amber-300 text-xs text-amber-900 flex items-start justify-between gap-2">
+                  <span>{templateRemovedNotice}</span>
+                  <button
+                    type="button"
+                    onClick={() => setTemplateRemovedNotice(null)}
+                    className="text-[11px] font-semibold text-amber-800 hover:text-amber-950 underline shrink-0 cursor-pointer"
+                  >
+                    Dismiss
                   </button>
                 </div>
               )}

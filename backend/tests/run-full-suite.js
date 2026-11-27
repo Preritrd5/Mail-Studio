@@ -2,14 +2,14 @@ import { spawn } from 'child_process';
 
 const testSuites = [
   { name: 'Phase 4: Individual Email & Core Architecture', file: 'backend/tests/run-all-tests.js', count: 20 },
-  { name: 'Phase 5: Email Template Management & Versioning', file: 'backend/tests/template.test.js', count: 20 },
+  { name: 'Phase 5: Email Template Management & Versioning', file: 'backend/tests/template.test.js', count: 31 },
   { name: 'Phase 6: High-Fidelity Bulk Import & Validation', file: 'backend/tests/import.test.js', count: 34 },
   { name: 'Phase 7: Persistent Sequential Sending Queue', file: 'backend/tests/queue.test.js', count: 40 },
   { name: 'Phase 8: Email Activity, Reconciled Reports & Formula Protection', file: 'backend/tests/activity-reports.test.js', count: 56 },
   { name: 'Gmail HTML Rendering, Inline CID Assets & MIME Verification', file: 'backend/tests/gmail-rendering.test.js', count: 10 },
   { name: 'Queue Sync, Defensive Routing & Auth Guards', file: 'backend/tests/test-queue-sync-and-preview.js', count: 5 },
   { name: 'Production Data Hygiene, Fail-Closed DB & Zero Fallback Audit', file: 'backend/tests/audit-production-hygiene.test.js', count: 10 },
-  { name: 'Production API Contract, Auth Session, Error & CORS Verification', file: 'backend/tests/production-api-verification.test.js', count: 13 },
+  { name: 'Production API Contract, Auth Session, Error & CORS Verification', file: 'backend/tests/production-api-verification.test.js', count: 14 },
 ];
 
 console.log('================================================================');

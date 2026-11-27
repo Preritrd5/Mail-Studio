@@ -5,6 +5,7 @@ import {
   Copy, 
   Edit3, 
   Archive, 
+  Trash2,
   RotateCcw, 
   Search, 
   Bold, 
@@ -65,6 +66,7 @@ export const EmailTemplatesView: React.FC = () => {
     addTemplate,
     updateTemplate,
     archiveTemplate,
+    deleteTemplate,
     restoreTemplate,
     duplicateTemplate,
     useTemplateInCompose,
@@ -84,6 +86,10 @@ export const EmailTemplatesView: React.FC = () => {
   const [editingTemplate, setEditingTemplate] = useState<EmailTemplateItem | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [archiveTargetId, setArchiveTargetId] = useState<string | null>(null);
+  const [deleteTargetTemplate, setDeleteTargetTemplate] = useState<EmailTemplateItem | null>(null);
+  const [deleteConfirmInput, setDeleteConfirmInput] = useState('');
+  const [deleteModalError, setDeleteModalError] = useState<string | null>(null);
+  const [isDeletingTemplate, setIsDeletingTemplate] = useState(false);
   const [historyTemplate, setHistoryTemplate] = useState<EmailTemplateItem | null>(null);
   const [selectedVersionSnapshot, setSelectedVersionSnapshot] = useState<TemplateVersionRecord | null>(null);
 
@@ -674,6 +680,7 @@ export const EmailTemplatesView: React.FC = () => {
 
                     {/* Version History Button */}
                     <button
+                      type="button"
                       onClick={() => {
                         setHistoryTemplate(tpl);
                         setSelectedVersionSnapshot(null);
@@ -682,6 +689,21 @@ export const EmailTemplatesView: React.FC = () => {
                       title="View Version History & Snapshots"
                     >
                       <History size={15} />
+                    </button>
+
+                    {/* Permanent Delete Button */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDeleteTargetTemplate(tpl);
+                        setDeleteConfirmInput('');
+                        setDeleteModalError(null);
+                      }}
+                      className="p-1.5 rounded-md text-[#64748B] hover:text-rose-700 hover:bg-rose-50 transition-colors cursor-pointer"
+                      title="Permanently Delete Template"
+                      aria-label={`Permanently delete ${tpl.name}`}
+                    >
+                      <Trash2 size={15} />
                     </button>
 
                     {/* Use in Compose Button */}
@@ -903,6 +925,121 @@ export const EmailTemplatesView: React.FC = () => {
             <p className="text-[#64748B]">
               <strong>Audit Integrity:</strong> Previous campaigns, sending queues, and historical activity logs referencing this template will remain completely intact. You can restore this template at any time.
             </p>
+          </div>
+        </Modal>
+      )}
+
+      {/* Permanent Delete Confirmation Modal */}
+      {deleteTargetTemplate && (
+        <Modal
+          isOpen={true}
+          onClose={() => {
+            if (!isDeletingTemplate) {
+              setDeleteTargetTemplate(null);
+              setDeleteConfirmInput('');
+              setDeleteModalError(null);
+            }
+          }}
+          title="Permanently Delete Template?"
+          subtitle={`${deleteTargetTemplate.name} • Version v${deleteTargetTemplate.version || 1}`}
+          maxWidth="md"
+          footer={
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={isDeletingTemplate}
+                onClick={() => {
+                  setDeleteTargetTemplate(null);
+                  setDeleteConfirmInput('');
+                  setDeleteModalError(null);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                icon={<Trash2 size={14} />}
+                isLoading={isDeletingTemplate}
+                disabled={
+                  isDeletingTemplate ||
+                  ((deleteTargetTemplate.usageCount || 0) > 0 &&
+                    deleteConfirmInput.trim() !== deleteTargetTemplate.name.trim())
+                }
+                onClick={async () => {
+                  if (isDeletingTemplate) return;
+                  setIsDeletingTemplate(true);
+                  setDeleteModalError(null);
+                  try {
+                    const targetId = deleteTargetTemplate.id;
+                    const res = await deleteTemplate(targetId);
+                    if (res.success) {
+                      if (previewTemplate?.id === targetId) setPreviewTemplate(null);
+                      if (editingTemplate?.id === targetId) setEditingTemplate(null);
+                      if (historyTemplate?.id === targetId) {
+                        setHistoryTemplate(null);
+                        setSelectedVersionSnapshot(null);
+                      }
+                      setDeleteTargetTemplate(null);
+                      setDeleteConfirmInput('');
+                      setDeleteModalError(null);
+                    } else {
+                      setDeleteModalError(res.error || 'Template could not be permanently deleted.');
+                    }
+                  } finally {
+                    setIsDeletingTemplate(false);
+                  }
+                }}
+              >
+                Permanently Delete
+              </Button>
+            </>
+          }
+        >
+          <div className="space-y-3 text-xs text-[#1E293B]">
+            <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-900 flex items-start gap-2.5">
+              <AlertTriangle size={16} className="text-rose-600 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-bold">Irreversible Action</p>
+                <p>
+                  Permanently deleting <strong>{deleteTargetTemplate.name}</strong> (v{deleteTargetTemplate.version || 1}) will immediately erase the template and its stored version history. Unlike Archiving, it cannot be restored.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-2.5 rounded-lg bg-[#F8FAFC] border border-[#CBD5E1] text-[#475569] space-y-1">
+              <p>
+                <strong>Historical Data Safety:</strong> Past campaigns that hold immutable template snapshots and all historical Email Activity / delivery logs stay preserved.
+              </p>
+              <p>
+                Deletion is automatically blocked if an active or incomplete campaign still depends on this live template without a complete snapshot.
+              </p>
+            </div>
+
+            {(deleteTargetTemplate.usageCount || 0) > 0 && (
+              <div className="space-y-1.5 pt-1">
+                <label className="block text-[11px] font-semibold text-[#172E58]">
+                  Referenced in {deleteTargetTemplate.usageCount} dispatch(es). Type{' '}
+                  <span className="font-mono text-rose-700 bg-rose-50 px-1 py-0.5 rounded">
+                    {deleteTargetTemplate.name}
+                  </span>{' '}
+                  to confirm:
+                </label>
+                <Input
+                  placeholder={deleteTargetTemplate.name}
+                  value={deleteConfirmInput}
+                  disabled={isDeletingTemplate}
+                  onChange={(e) => setDeleteConfirmInput(e.target.value)}
+                />
+              </div>
+            )}
+
+            {deleteModalError && (
+              <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-300 text-rose-800 text-[11px] font-medium">
+                {deleteModalError}
+              </div>
+            )}
           </div>
         </Modal>
       )}

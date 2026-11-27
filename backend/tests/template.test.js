@@ -273,11 +273,297 @@ await test('19. Unauthorized API access rejection without token (HTTP 401)', asy
 // 20. Zero Secret Leakage in Template Responses
 await test('20. Zero secret leakage across template responses', async () => {
   const res = await fetch(`http://127.0.0.1:${TEST_PORT}/api/templates/placeholders`, {
-    headers: { Authorization: 'Bearer mock-token' },
+    headers: { Authorization: 'Bearer demo-admin-token' },
   });
   const text = await res.text();
   assert.ok(!text.includes(config.gmailAppPassword));
   assert.ok(!text.includes(config.supabaseSecretKey));
+});
+
+// 21. Reject Unauthorized DELETE /api/templates/:id without token (HTTP 401)
+await test('21. Reject unauthorized DELETE /api/templates/:id without token (401)', async () => {
+  const res = await fetch(`http://127.0.0.1:${TEST_PORT}/api/templates/${duplicatedTemplateId}`, {
+    method: 'DELETE',
+  });
+  assert.equal(res.status, 401);
+  const stillExists = await templateRepo.getTemplateById(duplicatedTemplateId);
+  assert.ok(stillExists, 'Unauthorized delete must never remove template');
+});
+
+// 22. Invalid UUID Rejected Safely on DELETE /api/templates/:id (HTTP 400)
+await test('22. Reject non-UUID template ID cleanly with HTTP 400', async () => {
+  const res = await fetch(`http://127.0.0.1:${TEST_PORT}/api/templates/not-a-valid-uuid`, {
+    method: 'DELETE',
+    headers: { Authorization: 'Bearer demo-admin-token' },
+  });
+  assert.equal(res.status, 400);
+  const body = await res.json();
+  assert.equal(body.error.code, 'INVALID_TEMPLATE_ID');
+});
+
+// 23. Unknown UUID Returns HTTP 404 TEMPLATE_NOT_FOUND
+await test('23. Unknown valid UUID on DELETE returns HTTP 404', async () => {
+  const res = await fetch(
+    `http://127.0.0.1:${TEST_PORT}/api/templates/00000000-0000-4000-8000-000000000999`,
+    {
+      method: 'DELETE',
+      headers: { Authorization: 'Bearer demo-admin-token' },
+    }
+  );
+  assert.equal(res.status, 404);
+  const body = await res.json();
+  assert.equal(body.error.code, 'TEMPLATE_NOT_FOUND');
+});
+
+// 24. Reject Forged admin_id in Request Body on DELETE
+await test('24. Reject client-supplied admin_id override in DELETE body (400)', async () => {
+  const res = await fetch(`http://127.0.0.1:${TEST_PORT}/api/templates/${duplicatedTemplateId}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: 'Bearer demo-admin-token',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ admin_id: '00000000-0000-4000-8000-000000001111' }),
+  });
+  assert.equal(res.status, 400);
+  const body = await res.json();
+  assert.equal(body.error.code, 'FORBIDDEN_ACTOR_OVERRIDE');
+});
+
+// 25. Permanent Delete Removes Active Template, Cascades Versions & Preserves Unrelated Templates
+await test('25. Permanent delete removes active template + versions, records audit & preserves others', async () => {
+  const beforeCount = testDb._store.email_templates.length;
+  const res = await fetch(`http://127.0.0.1:${TEST_PORT}/api/templates/${duplicatedTemplateId}`, {
+    method: 'DELETE',
+    headers: { Authorization: 'Bearer demo-admin-token' },
+  });
+  assert.equal(res.status, 200);
+  const json = await res.json();
+  assert.equal(json.success, true);
+  assert.equal(json.data.id, duplicatedTemplateId);
+
+  const afterGet = await templateRepo.getTemplateById(duplicatedTemplateId);
+  assert.equal(afterGet, null);
+  assert.equal(
+    testDb._store.template_versions.filter((v) => v.template_id === duplicatedTemplateId).length,
+    0,
+    'Owned template_versions must be cascade-removed'
+  );
+  assert.equal(testDb._store.email_templates.length, beforeCount - 1);
+  assert.ok(await templateRepo.getTemplateById(createdTemplateId), 'Unrelated template must remain untouched');
+  const auditEvent = testDb._store.queue_events.find(
+    (e) => e.event_type === 'template_permanently_deleted' && e.event_details?.template_id === duplicatedTemplateId
+  );
+  assert.ok(auditEvent, 'Non-PII deletion audit event must be logged');
+});
+
+// 26. Repeated DELETE / GET After Deletion Returns HTTP 404 Cleanly
+await test('26. Repeated DELETE and GET on permanently deleted template returns 404', async () => {
+  const delAgain = await fetch(`http://127.0.0.1:${TEST_PORT}/api/templates/${duplicatedTemplateId}`, {
+    method: 'DELETE',
+    headers: { Authorization: 'Bearer demo-admin-token' },
+  });
+  assert.equal(delAgain.status, 404);
+
+  const getAgain = await fetch(`http://127.0.0.1:${TEST_PORT}/api/templates/${duplicatedTemplateId}`, {
+    headers: { Authorization: 'Bearer demo-admin-token' },
+  });
+  assert.equal(getAgain.status, 404);
+});
+
+// 27. Archived Template Can Be Permanently Deleted Cleanly
+await test('27. Archived template can also be permanently deleted from Archived gallery', async () => {
+  const temp = await templateRepo.createTemplate({
+    name: 'Temp Archived For Permanent Delete',
+    category: 'Notifications',
+    subject: 'Temp Archived Subject',
+    html_content: '<p>Hello {{recipient_name}}</p>',
+    text_content: 'Hello {{recipient_name}}',
+    userId: mockAdminUser.id,
+  });
+  await templateRepo.archiveTemplate(temp.id, mockAdminUser.id);
+
+  const delRes = await fetch(`http://127.0.0.1:${TEST_PORT}/api/templates/${temp.id}`, {
+    method: 'DELETE',
+    headers: { Authorization: 'Bearer demo-admin-token' },
+  });
+  assert.equal(delRes.status, 200);
+
+  const allList = await templateRepo.listTemplates({ status: 'all' });
+  assert.equal(allList.templates.find((t) => t.id === temp.id), undefined);
+});
+
+// 28. Snapshotted Campaign Preserved When Template Permanently Deleted
+await test('28. Permanent delete preserves historical campaigns with immutable snapshot & recipients', async () => {
+  const snapTpl = await templateRepo.createTemplate({
+    name: 'Snapshotted Historical Template',
+    category: 'General Notifications',
+    subject: 'Official Notice for {{recipient_name}}',
+    html_content: '<p>Dear {{recipient_name}}, snapshotted HTML notice.</p>',
+    text_content: 'Dear {{recipient_name}}, snapshotted text notice.',
+    userId: mockAdminUser.id,
+  });
+
+  const histCampId = 'c9000000-0000-4000-8000-000000000001';
+  const histRecipId = 'r9000000-0000-4000-8000-000000000001';
+  const histAttemptId = 'at-hist-9001';
+  testDb._store.campaigns.push({
+    id: histCampId,
+    campaign_name: 'Completed Snapshotted Campaign',
+    campaign_type: 'bulk',
+    subject: snapTpl.subject,
+    template_id: snapTpl.id,
+    template_version: snapTpl.version,
+    template_snapshot: {
+      id: snapTpl.id,
+      name: snapTpl.name,
+      version: snapTpl.version,
+      subject: snapTpl.subject,
+      html_content: snapTpl.html_content,
+      text_content: snapTpl.text_content,
+    },
+    status: 'completed',
+    total_recipients: 1,
+    sent_count: 1,
+    failed_count: 0,
+    pending_count: 0,
+    created_at: new Date().toISOString(),
+  });
+  testDb._store.campaign_recipients.push({
+    id: histRecipId,
+    campaign_id: histCampId,
+    recipient_name: 'Alumni User',
+    recipient_email: 'alumni@snpsu.edu.in',
+    status: 'sent',
+    attempt_count: 1,
+    created_at: new Date().toISOString(),
+  });
+  testDb._store.email_attempts.push({
+    id: histAttemptId,
+    campaign_id: histCampId,
+    recipient_id: histRecipId,
+    attempt_number: 1,
+    status: 'sent',
+    created_at: new Date().toISOString(),
+  });
+
+  const delRes = await fetch(`http://127.0.0.1:${TEST_PORT}/api/templates/${snapTpl.id}`, {
+    method: 'DELETE',
+    headers: { Authorization: 'Bearer demo-admin-token' },
+  });
+  assert.equal(delRes.status, 200);
+  const json = await delRes.json();
+  assert.equal(json.data.detached_campaigns, 1);
+
+  const preservedCamp = testDb._store.campaigns.find((c) => c.id === histCampId);
+  assert.ok(preservedCamp, 'Historical campaign row must NOT be cascade deleted');
+  assert.equal(preservedCamp.template_id, null, 'campaigns.template_id must be detached to NULL');
+  assert.ok(preservedCamp.template_snapshot?.html_content?.includes('snapshotted HTML notice'));
+  assert.ok(testDb._store.campaign_recipients.find((r) => r.id === histRecipId), 'Recipients must stay intact');
+  assert.ok(testDb._store.email_attempts.find((a) => a.id === histAttemptId), 'Attempts must stay intact');
+});
+
+// 29. Live Unsnapshotted Campaign Blocks Deletion (HTTP 409)
+await test('29. Blocks permanent delete with HTTP 409 when campaign lacks complete template_snapshot', async () => {
+  const blockedTpl = await templateRepo.createTemplate({
+    name: 'Active Dependency Protected Template',
+    category: 'Account Alerts',
+    subject: 'Account Verification Needed',
+    html_content: '<p>Verify now {{recipient_name}}</p>',
+    text_content: 'Verify now {{recipient_name}}',
+    userId: mockAdminUser.id,
+  });
+
+  const liveCampId = 'c9000000-0000-4000-8000-000000000002';
+  testDb._store.campaigns.push({
+    id: liveCampId,
+    campaign_name: 'Legacy Unsnapshotted Campaign',
+    campaign_type: 'bulk',
+    subject: blockedTpl.subject,
+    template_id: blockedTpl.id,
+    template_version: 1,
+    template_snapshot: null,
+    status: 'queued',
+    total_recipients: 1,
+    pending_count: 1,
+    created_at: new Date().toISOString(),
+  });
+
+  const delRes = await fetch(`http://127.0.0.1:${TEST_PORT}/api/templates/${blockedTpl.id}`, {
+    method: 'DELETE',
+    headers: { Authorization: 'Bearer demo-admin-token' },
+  });
+  assert.equal(delRes.status, 409);
+  const json = await delRes.json();
+  assert.equal(json.error.code, 'TEMPLATE_IN_USE_WITHOUT_SNAPSHOT');
+  assert.ok(await templateRepo.getTemplateById(blockedTpl.id), 'Blocked template must remain in DB');
+  assert.ok(testDb._store.campaigns.find((c) => c.id === liveCampId), 'Campaign must stay untouched');
+});
+
+// 30. HTML Sanitizer Inline Style + XSS Hardening Verification (sanitize-html@^2.18.2)
+await test('30. Sanitizer strips inline CSS url(javascript:...) and XSS payloads while preserving table layout', async () => {
+  const dirtyHtml = `
+    <table style="width:100%;background-color:#FFFFFF">
+      <tr><td style="padding:20px;background:url(javascript:alert(1));color:#172E58">
+        <p style="font-size:14px;expression(alert(1))">Official Text</p>
+        <noscript><img src="x" onerror="alert(1)"></noscript>
+        <meta http-equiv="refresh" content="0;url=javascript:alert(1)">
+        <svg><animate onbegin="alert(1)" attributeName="x" dur="1s"/></svg>
+        <a href="javascript:alert(1)" onclick="steal()">Evil</a>
+        <a href="https://snpsunexus.edu.in">Valid Link</a>
+      </td></tr>
+    </table>
+  `;
+  const validated = validateAndSanitizeTemplate({
+    name: 'Deep Sanitizer Security Template',
+    subject: 'Security Check',
+    html_content: dirtyHtml,
+  });
+  assert.ok(validated.html_content.includes('<table'));
+  assert.ok(validated.html_content.includes('color:#172E58'));
+  assert.ok(validated.html_content.includes('https://snpsunexus.edu.in'));
+  assert.ok(!validated.html_content.includes('javascript:'));
+  assert.ok(!validated.html_content.includes('expression('));
+  assert.ok(!validated.html_content.includes('<noscript'));
+  assert.ok(!validated.html_content.includes('<meta'));
+  assert.ok(!validated.html_content.includes('<animate'));
+  assert.ok(!validated.html_content.includes('onclick'));
+});
+
+// 31. PGRST202 Repository Fallback Path Safety Check
+await test('31. PGRST202 fallback path preserves snapshotted campaigns and removes template safely', async () => {
+  const fallbackTpl = await templateRepo.createTemplate({
+    name: 'Fallback Delete Path Template',
+    category: 'Notifications',
+    subject: 'Fallback Notice',
+    html_content: '<p>Fallback content for {{recipient_name}}</p>',
+    text_content: 'Fallback content for {{recipient_name}}',
+    userId: mockAdminUser.id,
+  });
+
+  const rpcOnlyMissingDb = {
+    from: (...args) => testDb.from(...args),
+    auth: testDb.auth,
+    _store: testDb._store,
+    rpc: async (fnName, params) => {
+      if (fnName === 'delete_email_template_permanently') {
+        return { data: null, error: { code: 'PGRST202', message: 'Function not found in schema cache' } };
+      }
+      return testDb.rpc(fnName, params);
+    },
+  };
+
+  setTestSupabaseClient(rpcOnlyMissingDb);
+  try {
+    const res = await fetch(`http://127.0.0.1:${TEST_PORT}/api/templates/${fallbackTpl.id}`, {
+      method: 'DELETE',
+      headers: { Authorization: 'Bearer demo-admin-token' },
+    });
+    assert.equal(res.status, 200);
+    assert.equal(await templateRepo.getTemplateById(fallbackTpl.id), null);
+  } finally {
+    setTestSupabaseClient(testDb);
+  }
 });
 
 httpServer.closeAllConnections?.();
@@ -289,5 +575,5 @@ console.log('========================================================');
 if (failed > 0) {
   process.exit(1);
 } else {
-  console.log('✓ ALL 20 TEMPLATE TESTS PASSED SUCCESSFULLY!\n');
+  console.log(`✓ ALL ${passed} TEMPLATE TESTS PASSED SUCCESSFULLY!\n`);
 }

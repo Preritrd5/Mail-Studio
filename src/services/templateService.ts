@@ -314,6 +314,36 @@ export class TemplateService {
   }
 
   /**
+   * Permanently delete template and its owned version history
+   */
+  public static async deleteTemplatePermanently(
+    id: string
+  ): Promise<{
+    success: boolean;
+    deletedId?: string;
+    detachedCampaigns?: number;
+    error?: string;
+    statusCode?: number;
+    errorCode?: string;
+  }> {
+    try {
+      const json = await fetchApiEnvelope<any>(`/templates/${id}`, { method: 'DELETE' });
+      return {
+        success: true,
+        deletedId: json.data?.id || id,
+        detachedCampaigns: Number(json.data?.detached_campaigns || 0),
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        error: err.message,
+        statusCode: err.status,
+        errorCode: err.code,
+      };
+    }
+  }
+
+  /**
    * Restore archived template
    */
   public static async restoreTemplate(

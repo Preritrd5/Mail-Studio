@@ -146,10 +146,13 @@ export const BulkImportView: React.FC = () => {
     return templates.filter((t) => t.is_active !== false && !t.archived_at);
   }, [templates]);
 
-  // Set initial template if available
+  // Set or synchronize selected template if none or previously selected template was deleted
   useEffect(() => {
-    if (!selectedTemplateId && activeTemplates.length > 0) {
+    const stillExists = activeTemplates.some((t) => t.id === selectedTemplateId);
+    if ((!selectedTemplateId || !stillExists) && activeTemplates.length > 0) {
       setSelectedTemplateId(activeTemplates[0].id);
+    } else if (selectedTemplateId && activeTemplates.length === 0) {
+      setSelectedTemplateId('');
     }
   }, [activeTemplates, selectedTemplateId]);
 

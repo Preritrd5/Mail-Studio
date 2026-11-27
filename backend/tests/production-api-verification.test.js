@@ -294,6 +294,8 @@ try {
     assert.equal(healthRes.status, 200);
     const healthJson = await healthRes.json();
     assert.equal(healthJson.status, 'ok');
+    assert.equal(healthJson.nodeVersion, process.version);
+    assert.equal(healthJson.sanitize_html_loaded, true);
 
     const sysRes = await fetch(`${baseUrl}/api/system/status`, {
       headers: { Authorization: 'Bearer demo-admin-token' },
@@ -340,6 +342,30 @@ try {
     assert.equal(badCorsRes.status, 403);
     const badCorsJson = await badCorsRes.json();
     assert.equal(badCorsJson.error.code, 'CORS_ORIGIN_FORBIDDEN');
+  });
+
+  await test('14. Rejects non-admin JWT (forged user_metadata role) on DELETE /api/templates/:id (403)', async () => {
+    const targetTplId = seededDb._store.email_templates[0]?.id;
+    assert.ok(targetTplId, 'Seeded fixture should provide a template ID');
+    const authDb = createAuthAwareDb(seededDb, {
+      'non-admin-user-jwt': {
+        user: {
+          id: '00000000-0000-0000-0000-000000009998',
+          email: 'user@snpsu.edu.in',
+          user_metadata: { role: 'administrator' },
+          app_metadata: {},
+        },
+      },
+    });
+    setTestSupabaseClient(authDb);
+    const res = await fetch(`${baseUrl}/api/templates/${targetTplId}`, {
+      method: 'DELETE',
+      headers: { Authorization: 'Bearer non-admin-user-jwt' },
+    });
+    assert.equal(res.status, 403);
+    const json = await res.json();
+    assert.equal(json.error.code, 'FORBIDDEN');
+    assert.ok(seededDb._store.email_templates.some((t) => t.id === targetTplId));
   });
 } finally {
   setTestSupabaseClient(seededDb);

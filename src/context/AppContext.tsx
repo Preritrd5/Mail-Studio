@@ -82,7 +82,7 @@ interface AppContextType {
     description?: string;
   }) => Promise<void>;
   updateTemplate: (id: string, updates: Partial<EmailTemplateItem> & { change_summary?: string }) => Promise<void>;
-  deleteTemplate: (id: string) => Promise<void>;
+  deleteTemplate: (id: string) => Promise<{ success: boolean; error?: string }>;
   archiveTemplate: (id: string) => Promise<void>;
   restoreTemplate: (id: string) => Promise<void>;
   duplicateTemplate: (id: string) => Promise<void>;
@@ -431,7 +431,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     [addToast]
   );
 
-  const deleteTemplate = archiveTemplate;
+  const deleteTemplate = useCallback(
+    async (id: string): Promise<{ success: boolean; error?: string }> => {
+      const target = templates.find((t) => t.id === id);
+      const res = await TemplateService.deleteTemplatePermanently(id);
+      if (res.success) {
+        setTemplates((prev) => prev.filter((t) => t.id !== id));
+        addToast({
+          type: 'success',
+          title: 'Template Permanently Deleted',
+          message: target
+            ? `"${target.name}" was permanently deleted. Historical campaign snapshots remain preserved.`
+            : 'Template permanently deleted.',
+        });
+        void refreshTemplates();
+        return { success: true };
+      } else {
+        const message = res.error || 'Failed to permanently delete template.';
+        addToast({
+          type: 'error',
+          title: res.statusCode === 409 ? 'Deletion Blocked (Safety Check)' : 'Permanent Delete Failed',
+          message,
+        });
+        if (res.statusCode === 404) {
+          setTemplates((prev) => prev.filter((t) => t.id !== id));
+          void refreshTemplates();
+        }
+        return { success: false, error: message };
+      }
+    },
+    [templates, addToast, refreshTemplates]
+  );
 
   const duplicateTemplate = useCallback(
     async (id: string) => {
