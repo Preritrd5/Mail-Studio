@@ -1,0 +1,76 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --snpsu-navy: #172E58;
+  --snpsu-blue: #1456AD;
+  --snpsu-gold: #C69A4C;
+  --snpsu-bg: #F4F6FA;
+  --snpsu-surface: #FFFFFF;
+  --snpsu-border: #CBD5E1;
+  --snpsu-text: #1E293B;
+  --snpsu-muted: #64748B;
+}
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    color: var(--snpsu-text);
+    background-color: var(--snpsu-bg);
+    overflow-x: clip;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--snpsu-bg);
+    color: var(--snpsu-text);
+    overflow-x: clip;
+  }
+
+  /* Custom scrollbar for modern SaaS feel */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--snpsu-bg);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--snpsu-border);
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #94A3B8;
+  }
+}
+
+@layer utilities {
+  .text-brand-navy {
+    color: var(--snpsu-navy);
+  }
+  .bg-brand-navy {
+    background-color: var(--snpsu-navy);
+  }
+  .text-brand-blue {
+    color: var(--snpsu-blue);
+  }
+  .bg-brand-blue {
+    background-color: var(--snpsu-blue);
+  }
+  .text-brand-gold {
+    color: var(--snpsu-gold);
+  }
+  .bg-brand-gold {
+    background-color: var(--snpsu-gold);
+  }
+  .border-brand-border {
+    border-color: var(--snpsu-border);
+  }
+}

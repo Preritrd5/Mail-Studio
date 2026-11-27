@@ -1,0 +1,18 @@
+# Environment Variables & Secrets (CRITICAL: NEVER COMMIT SECRETS)
+.env
+.env.local
+.env.*.local
+
+# Node dependencies
+node_modules/
+
+# Production build outputs
+dist/
+dist-ssr/
+
+# Editor & System files
+.DS_Store
+Thumbs.db
+*.log
+.vscode/
+.idea/
