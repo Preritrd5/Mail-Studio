@@ -35,26 +35,28 @@ const vercelBranchOrigin = process.env.VERCEL_BRANCH_URL
   : '';
 
 const defaultOrigin = vercelProductionOrigin || vercelDeployOrigin || 'http://localhost:5173';
-const supabaseUrl = cleanEnv(process.env.SUPABASE_URL) || cleanEnv(process.env.VITE_SUPABASE_URL);
+function isValidHttpUrl(val) {
+  if (!val) return false;
+  try {
+    const parsed = new URL(val);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+const rawSupabaseUrl = cleanEnv(process.env.SUPABASE_URL) || cleanEnv(process.env.VITE_SUPABASE_URL);
+const supabaseUrl = isValidHttpUrl(rawSupabaseUrl) ? rawSupabaseUrl : '';
 const supabaseSecretKey = cleanEnv(process.env.SUPABASE_SECRET_KEY);
 const gmailUser = cleanEnv(process.env.GMAIL_USER);
 const gmailAppPassword = cleanEnv(process.env.GMAIL_APP_PASSWORD);
 
 const missingBackendVars = [
-  !supabaseUrl ? 'SUPABASE_URL' : null,
+  !supabaseUrl ? (rawSupabaseUrl ? 'SUPABASE_URL (must be a valid https:// URL)' : 'SUPABASE_URL') : null,
   !supabaseSecretKey ? 'SUPABASE_SECRET_KEY' : null,
   !gmailUser ? 'GMAIL_USER' : null,
   !gmailAppPassword ? 'GMAIL_APP_PASSWORD' : null,
 ].filter(Boolean);
-
-// Only fail fast in local/standalone server startup when core credentials are absent.
-// In Vercel serverless imports, keep the app bootable so /api/health & error handlers return clean 503 JSON.
-if (!isServerlessRuntime && (!supabaseUrl || !supabaseSecretKey)) {
-  console.error(
-    `FATAL STARTUP ERROR: Missing mandatory environment variable(s): ${[!supabaseUrl && 'SUPABASE_URL', !supabaseSecretKey && 'SUPABASE_SECRET_KEY'].filter(Boolean).join(', ')}`
-  );
-  process.exit(1);
-}
 
 const extraCorsOrigins = cleanEnv(process.env.ALLOWED_ORIGINS, '')
   .split(',')
@@ -82,6 +84,7 @@ export const config = Object.freeze({
   ),
   appBaseUrl: cleanEnv(process.env.APP_BASE_URL, vercelProductionOrigin || vercelDeployOrigin || 'http://localhost:4000'),
   supabaseUrl,
+  rawSupabaseUrl,
   supabaseSecretKey,
   gmailUser,
   gmailAppPassword,

@@ -12,7 +12,7 @@
   ],
   "functions": {
     "api/index.js": {
-      "includeFiles": "{backend/**,public/assets/**}"
+      "includeFiles": "public/assets/**"
     }
   }
 }

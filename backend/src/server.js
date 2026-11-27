@@ -3,6 +3,12 @@ import { config } from './config/env.js';
 import { verifySmtpConnection } from './services/smtpService.js';
 
 async function startServer() {
+  if (!config.supabaseUrl || !config.supabaseSecretKey) {
+    const missing = [!config.supabaseUrl && 'SUPABASE_URL', !config.supabaseSecretKey && 'SUPABASE_SECRET_KEY'].filter(Boolean);
+    console.error(`FATAL STARTUP ERROR: Missing or invalid mandatory environment variable(s): ${missing.join(', ')}`);
+    process.exit(1);
+  }
+
   console.log('========================================================');
   console.log('   SNPSUNEXUS Mail Studio — Backend API Server');
   console.log('   SNPSUNEXUS Mail Studio');

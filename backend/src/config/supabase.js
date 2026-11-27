@@ -4,23 +4,31 @@ import { config } from './env.js';
 // Server-side privileged Supabase client
 // Never exposes SUPABASE_SECRET_KEY to client-side bundles
 const hasSupabaseConfig = Boolean(config.supabaseUrl && config.supabaseSecretKey);
-const liveSupabaseAdmin = createClient(
-  config.supabaseUrl || 'https://unconfigured.supabase.co',
-  config.supabaseSecretKey || 'unconfigured-secret-key',
-  {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-      detectSessionInUrl: false,
-    },
-  }
-);
+let liveSupabaseAdmin = null;
+let supabaseInitError = null;
 
-export function isSupabaseConfigured() {
-  return hasSupabaseConfig || activeClient !== liveSupabaseAdmin;
+try {
+  liveSupabaseAdmin = createClient(
+    config.supabaseUrl || 'https://unconfigured.supabase.co',
+    config.supabaseSecretKey || 'unconfigured-secret-key',
+    {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+      },
+    }
+  );
+} catch (err) {
+  supabaseInitError = err?.message || 'Failed to initialize Supabase admin client.';
+  console.warn('[Supabase Config Notice]:', supabaseInitError);
 }
 
 let activeClient = liveSupabaseAdmin;
+
+export function isSupabaseConfigured() {
+  return (hasSupabaseConfig && !supabaseInitError && Boolean(liveSupabaseAdmin)) || activeClient !== liveSupabaseAdmin;
+}
 
 /**
  * Allows isolated automated tests (NODE_ENV === 'test' only) to inject an ephemeral test database adapter.
