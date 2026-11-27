@@ -20,6 +20,7 @@ import { Modal } from '../components/common/Modal';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import { TemplateService } from '../services/templateService';
+import { getApiUrl } from '../services/apiConfig';
 
 function escapeHtmlSafe(val: string): string {
   return String(val || '')
@@ -365,7 +366,6 @@ export const ComposeEmailView: React.FC = () => {
   };
 
   const performLiveSend = async () => {
-    const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
     setIsSending(true);
     setLastSmtpResult(null);
 
@@ -392,7 +392,7 @@ export const ComposeEmailView: React.FC = () => {
         idempotency_key: idempotencyKey,
       };
 
-      const response = await fetch(`${apiBaseUrl}/api/emails/send`, {
+      const response = await fetch(getApiUrl('/emails/send'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -29,6 +29,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Check and restore active Supabase session on mount
   useEffect(() => {
     let mounted = true;
+    let verifiedUserId: string | null = null;
+
+    async function syncAdminForSession(targetUser: User | null) {
+      if (!targetUser) {
+        verifiedUserId = null;
+        if (mounted) {
+          setAdminProfile(null);
+          setIsAdmin(false);
+        }
+        return;
+      }
+
+      if (verifiedUserId === targetUser.id) return;
+      verifiedUserId = targetUser.id;
+
+      const { isAdmin: adminStatus, profile } = await AuthService.verifyAdminStatus(targetUser);
+      if (mounted && verifiedUserId === targetUser.id) {
+        setIsAdmin(adminStatus);
+        setAdminProfile(profile);
+      }
+    }
 
     async function initializeAuth() {
       try {
@@ -38,17 +59,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (initialSession?.user) {
           setSession(initialSession);
           setUser(initialSession.user);
-
-          const { isAdmin: adminStatus, profile } = await AuthService.verifyAdminStatus(initialSession.user);
-          if (mounted) {
-            setIsAdmin(adminStatus);
-            setAdminProfile(profile);
-          }
+          await syncAdminForSession(initialSession.user);
         } else {
           setUser(null);
           setSession(null);
-          setAdminProfile(null);
-          setIsAdmin(false);
+          await syncAdminForSession(null);
         }
       } catch (err) {
         console.warn('Supabase auth session restoration notice', err);
@@ -59,23 +74,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     initializeAuth();
 
-    // Listen to Supabase auth state changes
+    // Listen to Supabase auth state changes (skipping duplicate INITIAL_SESSION already handled above)
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
       if (!mounted) return;
+      if (event === 'INITIAL_SESSION') return;
 
       setSession(currentSession);
       setUser(currentSession?.user || null);
-
-      if (currentSession?.user) {
-        const { isAdmin: adminStatus, profile } = await AuthService.verifyAdminStatus(currentSession.user);
-        if (mounted) {
-          setIsAdmin(adminStatus);
-          setAdminProfile(profile);
-        }
-      } else {
-        setAdminProfile(null);
-        setIsAdmin(false);
-      }
+      await syncAdminForSession(currentSession?.user || null);
     });
 
     return () => {

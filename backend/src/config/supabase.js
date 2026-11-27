@@ -3,9 +3,10 @@ import { config } from './env.js';
 
 // Server-side privileged Supabase client
 // Never exposes SUPABASE_SECRET_KEY to client-side bundles
+const hasSupabaseConfig = Boolean(config.supabaseUrl && config.supabaseSecretKey);
 const liveSupabaseAdmin = createClient(
-  config.supabaseUrl,
-  config.supabaseSecretKey,
+  config.supabaseUrl || 'https://unconfigured.supabase.co',
+  config.supabaseSecretKey || 'unconfigured-secret-key',
   {
     auth: {
       persistSession: false,
@@ -14,6 +15,10 @@ const liveSupabaseAdmin = createClient(
     },
   }
 );
+
+export function isSupabaseConfigured() {
+  return hasSupabaseConfig || activeClient !== liveSupabaseAdmin;
+}
 
 let activeClient = liveSupabaseAdmin;
 

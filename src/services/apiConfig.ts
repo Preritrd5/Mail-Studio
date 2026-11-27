@@ -32,8 +32,23 @@ export interface ApiEnvelope<T = any> {
 }
 
 export function getApiBaseUrl(): string {
-  const raw = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000').trim().replace(/\/+$/, '');
-  return raw.endsWith('/api') ? raw : `${raw}/api`;
+  const configured = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '');
+  const isBrowser = typeof window !== 'undefined';
+  const hostname = isBrowser ? window.location.hostname : 'localhost';
+  const isLocalHost = hostname === 'localhost' || hostname === '127.0.0.1';
+
+  // Never allow a deployed non-localhost build to issue requests to localhost / 127.0.0.1
+  const pointsToLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(configured);
+  if (configured && (isLocalHost || !pointsToLocalhost)) {
+    return configured.endsWith('/api') ? configured : `${configured}/api`;
+  }
+
+  // On deployed origins (e.g. Vercel), default cleanly to same-origin /api serverless routes
+  if (!isLocalHost) {
+    return '/api';
+  }
+
+  return 'http://localhost:4000/api';
 }
 
 export function getApiUrl(endpoint: string): string {

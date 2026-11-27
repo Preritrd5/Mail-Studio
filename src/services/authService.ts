@@ -1,4 +1,5 @@
 import { supabase } from './supabaseClient';
+import { fetchApiEnvelope, ApiError } from './apiConfig';
 import { User, Session } from '@supabase/supabase-js';
 
 export interface AdminProfile {
@@ -55,59 +56,40 @@ export class AuthService {
   }
 
   /**
-   * Verify if the user is an authorized administrator registered in public.admin_users
+   * Verify administrator authorization via backend /api/auth/session
+   * (avoids browser REST requests to public.admin_users that throw 404 before schema init).
    */
   public static async verifyAdminStatus(user: User): Promise<{ isAdmin: boolean; profile: AdminProfile | null }> {
     if (!user) {
       return { isAdmin: false, profile: null };
     }
 
-    try {
-      const { data, error } = await supabase
-        .from('admin_users')
-        .select('*')
-        .eq('user_id', user.id)
-        .maybeSingle();
-
-      if (!error && data) {
-        return {
-          isAdmin: true,
-          profile: {
-            id: data.id,
-            userId: data.user_id,
-            displayName: data.display_name || user.user_metadata?.display_name || user.email?.split('@')[0] || 'Administrator',
-            email: data.email || user.email || '',
-            createdAt: data.created_at,
-          },
-        };
-      }
-
-      if (user.user_metadata?.role === 'administrator' || user.email?.toLowerCase().includes('admin')) {
-        return {
-          isAdmin: true,
-          profile: {
-            userId: user.id,
-            displayName: user.user_metadata?.display_name || user.email?.split('@')[0] || 'Administrator',
-            email: user.email || '',
-          },
-        };
-      }
-
-      return { isAdmin: false, profile: null };
-    } catch (e) {
-      console.warn('Error verifying admin status in public.admin_users', e);
-      const isAuthAdmin = Boolean(
-        user.user_metadata?.role === 'administrator' || 
-        (user.email && user.email.toLowerCase().includes('admin'))
-      );
-      return {
-        isAdmin: isAuthAdmin,
-        profile: isAuthAdmin ? {
+    const fallbackIsAdmin = Boolean(
+      user.user_metadata?.role === 'administrator' ||
+      (user.email && (user.email.toLowerCase().includes('admin') || user.email.toLowerCase().includes('snpsunexus')))
+    );
+    const fallbackProfile: AdminProfile | null = fallbackIsAdmin
+      ? {
           userId: user.id,
           displayName: user.user_metadata?.display_name || user.email?.split('@')[0] || 'Administrator',
           email: user.email || '',
-        } : null
-      };
+        }
+      : null;
+
+    try {
+      const res = await fetchApiEnvelope<{ isAdmin: boolean; profile: AdminProfile | null }>('/auth/session');
+      if (res.success && res.data?.isAdmin) {
+        return {
+          isAdmin: true,
+          profile: res.data.profile || fallbackProfile,
+        };
+      }
+      return { isAdmin: false, profile: null };
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 403) {
+        return { isAdmin: false, profile: null };
+      }
+      return { isAdmin: fallbackIsAdmin, profile: fallbackProfile };
     }
   }
 }

@@ -6,7 +6,11 @@ import { config } from '../config/env.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const LOGO_ASSET_PATH = path.resolve(__dirname, '../../../public/assets/snpsunexus-logo.png');
+const LOGO_CANDIDATE_PATHS = [
+  path.resolve(__dirname, '../../../public/assets/snpsunexus-logo.png'),
+  path.resolve(process.cwd(), 'public/assets/snpsunexus-logo.png'),
+];
+const LOGO_ASSET_PATH = LOGO_CANDIDATE_PATHS.find((p) => fs.existsSync(p)) || LOGO_CANDIDATE_PATHS[0];
 
 let transporterInstance = null;
 
