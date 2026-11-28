@@ -821,17 +821,6 @@ export const ComposeEmailView: React.FC = () => {
               {/* Template Context Row: Designation & Activation URL */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Input
-                  id="compose-designation"
-                  label="Designation / Role"
-                  placeholder="e.g. Coordinator"
-                  value={draft.designation}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setDraft((prev) => ({ ...prev, designation: val }));
-                  }}
-                />
-
-                <Input
                   id="compose-activation-link"
                   label="Action / Portal Link"
                   type="url"
