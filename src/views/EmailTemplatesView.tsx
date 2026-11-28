@@ -43,6 +43,7 @@ import { Select } from '../components/common/Select';
 import { Modal } from '../components/common/Modal';
 import { BrandWordmark } from '../components/common/BrandWordmark';
 import { StateNotice } from '../components/common/StateNotice';
+import { EmailPreviewFrame } from '../components/common/EmailPreviewFrame';
 import { LoadingSpinner, CardSkeleton, SyncStatusPill } from '../components/common/Loading';
 import { BlockBasedEditor } from '../components/templates/BlockBasedEditor';
 import { useApp } from '../context/AppContext';
@@ -906,54 +907,53 @@ export const EmailTemplatesView: React.FC = () => {
             </div>
 
             {/* Rendered Envelope Container */}
-            <div className="flex justify-center bg-slate-100 p-2.5 sm:p-4 rounded-xl border border-[#CBD5E1] overflow-x-auto min-h-[260px] sm:min-h-[380px]">
+            <div className="min-h-[260px] sm:min-h-[380px]">
               {previewFormat === 'html' ? (
-                <div 
-                  className={`bg-white rounded-xl shadow-sm border border-[#CBD5E1] overflow-hidden transition-all duration-300 flex justify-center shrink-0 ${
-                    previewDevice === 'mobile' ? 'w-full max-w-[375px]' : 'w-full max-w-[650px]'
-                  }`}
-                >
-                  {previewTemplate.html_content ? (
-                    <iframe
-                      title="Email Template Preview"
-                      srcDoc={getInterpolatedHtml(previewTemplate.html_content)}
-                      className="w-full border-0 h-[320px] sm:h-[440px]"
-                      style={{
-                        width: previewDevice === 'mobile' ? '375px' : '100%',
-                        maxWidth: '100%',
-                        display: 'block',
-                        background: '#FFFFFF',
-                      }}
-                      sandbox="allow-same-origin"
-                    />
-                  ) : (
-                    /* Plain Letterhead Layout */
-                    <div className="p-4 sm:p-5 space-y-4 w-full">
-                      <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b-2 border-[#172E58]">
-                        <BrandWordmark size="sm" theme="light" showSubtitle={false} />
-                        <span className="text-[10px] font-bold text-[#C69A4C] bg-[#FDF8EE] px-2 py-0.5 rounded border border-[#C69A4C]/30 whitespace-nowrap">
-                          STANDARD FORMAT
-                        </span>
-                      </div>
+                previewTemplate.html_content ? (
+                  <EmailPreviewFrame
+                    html={getInterpolatedHtml(previewTemplate.html_content)}
+                    viewport={previewDevice}
+                    title="Email Template Preview"
+                    minHeight={360}
+                    maxHeight={440}
+                  />
+                ) : (
+                  <div className="flex justify-center bg-slate-100 p-2.5 sm:p-4 rounded-xl border border-[#CBD5E1] overflow-x-auto">
+                    <div
+                      className={`bg-white rounded-xl shadow-sm border border-[#CBD5E1] overflow-hidden transition-all duration-300 flex justify-center shrink-0 ${
+                        previewDevice === 'mobile' ? 'w-full max-w-[375px]' : 'w-full max-w-[650px]'
+                      }`}
+                    >
+                      {/* Plain Letterhead Layout */}
+                      <div className="p-4 sm:p-5 space-y-4 w-full">
+                        <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b-2 border-[#172E58]">
+                          <BrandWordmark size="sm" theme="light" showSubtitle={false} />
+                          <span className="text-[10px] font-bold text-[#C69A4C] bg-[#FDF8EE] px-2 py-0.5 rounded border border-[#C69A4C]/30 whitespace-nowrap">
+                            STANDARD FORMAT
+                          </span>
+                        </div>
 
-                      <div className="text-xs text-[#1E293B] leading-relaxed whitespace-pre-wrap font-sans">
-                        {getInterpolatedText(previewTemplate.contentPreview)}
-                      </div>
+                        <div className="text-xs text-[#1E293B] leading-relaxed whitespace-pre-wrap font-sans">
+                          {getInterpolatedText(previewTemplate.contentPreview)}
+                        </div>
 
-                      <div className="pt-3 border-t border-[#CBD5E1] text-[10px] text-[#64748B] flex items-center justify-between">
-                        <span>SNPSUNEXUS</span>
+                        <div className="pt-3 border-t border-[#CBD5E1] text-[10px] text-[#64748B] flex items-center justify-between">
+                          <span>SNPSUNEXUS</span>
+                        </div>
                       </div>
                     </div>
-                  )}
-                </div>
+                  </div>
+                )
               ) : (
                 /* Plain Text Preview Container */
-                <div 
-                  className={`p-4 font-mono text-xs text-[#1E293B] whitespace-pre-wrap leading-relaxed bg-[#F8FAFC] rounded-lg border border-[#CBD5E1] w-full ${
-                    previewDevice === 'mobile' ? 'max-w-[375px]' : 'max-w-[650px]'
-                  }`}
-                >
-                  {getInterpolatedText(previewTemplate.text_content || previewTemplate.contentPreview)}
+                <div className="flex justify-center bg-slate-100 p-2.5 sm:p-4 rounded-xl border border-[#CBD5E1] overflow-x-auto">
+                  <div
+                    className={`p-4 font-mono text-xs text-[#1E293B] whitespace-pre-wrap leading-relaxed bg-[#F8FAFC] rounded-lg border border-[#CBD5E1] w-full ${
+                      previewDevice === 'mobile' ? 'max-w-[375px]' : 'max-w-[650px]'
+                    }`}
+                  >
+                    {getInterpolatedText(previewTemplate.text_content || previewTemplate.contentPreview)}
+                  </div>
                 </div>
               )}
             </div>
@@ -1439,27 +1439,13 @@ export const EmailTemplatesView: React.FC = () => {
 
                 {/* 2. LIVE EMAIL PREVIEW MODE */}
                 {editorMode === 'preview' && (
-                  <div className="p-2.5 sm:p-4 bg-slate-100/80 rounded-xl overflow-x-auto flex justify-center">
-                    <div
-                      className={`transition-all bg-white rounded-xl shadow-sm border border-[#CBD5E1] overflow-hidden flex justify-center shrink-0 ${
-                        previewDevice === 'mobile'
-                          ? 'w-[375px]'
-                          : 'w-full max-w-[620px]'
-                      }`}
-                    >
-                      <iframe
-                        title="Live Template Preview"
-                        srcDoc={getInterpolatedHtml(formData.html_content)}
-                        className="w-full border-0 h-[320px] sm:h-[420px]"
-                        style={{
-                          width: previewDevice === 'mobile' ? '375px' : '100%',
-                          display: 'block',
-                          background: '#FFFFFF',
-                        }}
-                        sandbox="allow-same-origin"
-                      />
-                    </div>
-                  </div>
+                  <EmailPreviewFrame
+                    html={getInterpolatedHtml(formData.html_content)}
+                    viewport={previewDevice}
+                    title="Live Template Preview"
+                    minHeight={360}
+                    maxHeight={420}
+                  />
                 )}
 
                 {/* 3. HTML SOURCE CODE MODE */}

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { extractEmailDocumentParts } from '../../services/clientEmailSanitizer';
 
 export interface EmailPreviewFrameProps {
@@ -9,6 +9,50 @@ export interface EmailPreviewFrameProps {
   maxHeight?: number;
   seamless?: boolean;
   className?: string;
+}
+
+const PUBLIC_LOGO_FALLBACK_URL = 'https://emaildraft.vercel.app/assets/snpsunexus-logo.png';
+const LOGO_SRC_REGEX =
+  /(?:(?:https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?)?\/?assets\/snpsunexus-logo\.png|cid:snpsunexus-logo@snpsunexus)/gi;
+
+let cachedLogoDataUrl: string | null = null;
+let logoLoadPromise: Promise<string | null> | null = null;
+
+function loadPreviewLogoDataUrl(): Promise<string | null> {
+  if (cachedLogoDataUrl) return Promise.resolve(cachedLogoDataUrl);
+  if (logoLoadPromise) return logoLoadPromise;
+
+  logoLoadPromise = (async () => {
+    if (typeof window === 'undefined' || typeof fetch === 'undefined') return null;
+    try {
+      const res = await fetch('/assets/snpsunexus-logo.png', { cache: 'force-cache' });
+      if (!res.ok) return null;
+      const blob = await res.blob();
+      const dataUrl = await new Promise<string | null>((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(typeof reader.result === 'string' ? reader.result : null);
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(blob);
+      });
+      if (dataUrl) cachedLogoDataUrl = dataUrl;
+      return dataUrl;
+    } catch {
+      return null;
+    }
+  })();
+
+  return logoLoadPromise;
+}
+
+function resolvePreviewLogoSources(rawHtml: string, resolvedDataUrl: string | null): string {
+  if (!rawHtml) return '';
+  const originUrl =
+    typeof window !== 'undefined' && window.location?.origin && /^https?:/i.test(window.location.origin)
+      ? `${window.location.origin}/assets/snpsunexus-logo.png`
+      : PUBLIC_LOGO_FALLBACK_URL;
+
+  const replacement = resolvedDataUrl || originUrl;
+  return rawHtml.replace(LOGO_SRC_REGEX, replacement);
 }
 
 const BASE_PREVIEW_CSS = `
@@ -38,12 +82,29 @@ export const EmailPreviewFrame: React.FC<EmailPreviewFrameProps> = ({
 }) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const initializedRef = useRef(false);
+  const [logoDataUrl, setLogoDataUrl] = useState<string | null>(cachedLogoDataUrl);
+
+  useEffect(() => {
+    if (logoDataUrl) return;
+    let active = true;
+    void loadPreviewLogoDataUrl().then((url) => {
+      if (active && url) setLogoDataUrl(url);
+    });
+    return () => {
+      active = false;
+    };
+  }, [logoDataUrl]);
 
   useEffect(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
 
     const { safeCss, bodyHtml, bodyStyle } = extractEmailDocumentParts(html);
+    const resolvedBodyHtml = resolvePreviewLogoSources(bodyHtml, logoDataUrl);
+    const baseHref =
+      typeof window !== 'undefined' && window.location?.origin && /^https?:/i.test(window.location.origin)
+        ? `${window.location.origin}/`
+        : '/';
 
     const writeOrUpdate = () => {
       const doc = iframe.contentDocument;
@@ -56,6 +117,7 @@ export const EmailPreviewFrame: React.FC<EmailPreviewFrameProps> = ({
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <base href="${baseHref}" />
   <style id="preview-base-css">${BASE_PREVIEW_CSS}</style>
   <style id="preview-email-css"></style>
 </head>
@@ -77,8 +139,24 @@ export const EmailPreviewFrame: React.FC<EmailPreviewFrameProps> = ({
       if (doc.body && bodyStyle) {
         doc.body.setAttribute('style', bodyStyle);
       }
-      if (rootEl && rootEl.innerHTML !== bodyHtml) {
-        rootEl.innerHTML = bodyHtml;
+      if (rootEl && rootEl.innerHTML !== resolvedBodyHtml) {
+        rootEl.innerHTML = resolvedBodyHtml;
+
+        // Guarantee brand logo never stays broken in sandboxed preview iframes
+        rootEl.querySelectorAll('img').forEach((img) => {
+          const srcAttr = img.getAttribute('src') || '';
+          if (srcAttr.includes('snpsunexus-logo') || img.alt.toLowerCase().includes('snpsunexus')) {
+            img.addEventListener(
+              'error',
+              () => {
+                if (img.src !== PUBLIC_LOGO_FALLBACK_URL) {
+                  img.src = logoDataUrl || PUBLIC_LOGO_FALLBACK_URL;
+                }
+              },
+              { once: true }
+            );
+          }
+        });
       }
 
       window.requestAnimationFrame(() => {
@@ -89,7 +167,7 @@ export const EmailPreviewFrame: React.FC<EmailPreviewFrameProps> = ({
     };
 
     writeOrUpdate();
-  }, [html]);
+  }, [html, logoDataUrl]);
 
   const isMobile = viewport === 'mobile';
 

@@ -30,6 +30,7 @@ import { Badge } from '../components/common/Badge';
 import { Input } from '../components/common/Input';
 import { Modal } from '../components/common/Modal';
 import { StateNotice } from '../components/common/StateNotice';
+import { EmailPreviewFrame } from '../components/common/EmailPreviewFrame';
 import { TableSkeleton, ProgressIndicator, SyncStatusPill } from '../components/common/Loading';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
@@ -1440,15 +1441,13 @@ export const BulkImportView: React.FC = () => {
                 </div>
 
                 {selectedTemplate.html_content ? (
-                  <div className="bg-slate-100 rounded-lg border border-[#CBD5E1] overflow-hidden">
-                    <iframe
-                      title="Bulk Campaign Attached Template Preview"
-                      srcDoc={selectedTemplate.html_content}
-                      className="w-full border-0"
-                      style={{ height: '420px', display: 'block', background: '#F4F6FA' }}
-                      sandbox="allow-same-origin"
-                    />
-                  </div>
+                  <EmailPreviewFrame
+                    html={selectedTemplate.html_content}
+                    title="Bulk Campaign Attached Template Preview"
+                    minHeight={420}
+                    maxHeight={420}
+                    seamless
+                  />
                 ) : (
                   <div className="p-4 bg-white rounded-lg border border-[#CBD5E1] max-h-60 overflow-y-auto font-mono text-xs text-slate-700 whitespace-pre-wrap">
                     {selectedTemplate.text_content || selectedTemplate.contentPreview}
