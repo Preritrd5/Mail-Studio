@@ -59,7 +59,7 @@ export const Header: React.FC = () => {
     isSidebarCollapsed,
     toggleSidebarCollapse,
   } = useApp();
-  const { user, adminProfile, logout, openAuthModal } = useAuth();
+  const { user, adminProfile, isAdmin, logout, openAuthModal } = useAuth();
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -198,7 +198,11 @@ export const Header: React.FC = () => {
                   <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-[#172E58] text-white flex items-center justify-center font-semibold text-xs ring-2 ring-[#1456AD]/30 shadow-xs">
                     {initials}
                   </div>
-                  <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-white bg-emerald-500" />
+                  <span
+                    className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-white ${
+                      isAdmin ? 'bg-emerald-500' : 'bg-amber-400'
+                    }`}
+                  />
                 </div>
 
                 <div className="hidden md:flex flex-col text-left min-w-0">
@@ -206,8 +210,14 @@ export const Header: React.FC = () => {
                     <span className="text-xs font-semibold text-[#172E58] truncate max-w-[120px]">
                       {displayName || 'Administrator'}
                     </span>
-                    <span className="text-[10px] font-semibold text-[#1456AD] bg-[#1456AD]/10 px-1.5 py-0.5 rounded shrink-0">
-                      Admin
+                    <span
+                      className={`text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0 ${
+                        isAdmin
+                          ? 'text-[#1456AD] bg-[#1456AD]/10'
+                          : 'text-amber-800 bg-amber-100'
+                      }`}
+                    >
+                      {isAdmin ? 'Admin' : 'Pending'}
                     </span>
                   </div>
                   <span className="text-[11px] text-[#64748B] truncate max-w-[150px]">

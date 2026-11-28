@@ -137,7 +137,7 @@ export const ComposeEmailView: React.FC = () => {
     selectedComposeTemplateVersion,
     setSelectedComposeTemplateVersion,
   } = useApp();
-  const { user, session, openAuthModal } = useAuth();
+  const { user, session, isAdmin, openAuthModal } = useAuth();
 
   const [recipient, setRecipient] = useState('');
   const [recipientName, setRecipientName] = useState('');
@@ -563,8 +563,8 @@ export const ComposeEmailView: React.FC = () => {
               action={
                 <div className="flex items-center gap-1.5 text-[11px] text-[#64748B]">
                   <span className="font-semibold text-[#172E58]">Status:</span>
-                  <Badge variant={user ? 'success' : 'neutral'} size="sm">
-                    {user ? 'Authenticated' : 'Sign In Required'}
+                  <Badge variant={isAdmin ? 'success' : user ? 'warning' : 'neutral'} size="sm">
+                    {isAdmin ? 'Authenticated' : user ? 'Admin Pending' : 'Sign In Required'}
                   </Badge>
                 </div>
               }

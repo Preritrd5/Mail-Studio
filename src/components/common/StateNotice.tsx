@@ -135,6 +135,11 @@ export const StateNotice: React.FC<StateNoticeProps> = ({
               <p className="text-xs text-rose-800 mt-1 leading-relaxed">
                 {message || 'The backend API could not retrieve persisted records.'}
               </p>
+              {isSchemaMissing && (
+                <p className="text-[11px] text-rose-700 mt-1.5 font-medium">
+                  Setup Required: Run <code className="bg-rose-100 px-1 py-0.5 rounded font-mono">supabase/consolidated_schema_migration.sql</code> in the Supabase SQL Editor for your connected project and register your administrator account in <code className="bg-rose-100 px-1 py-0.5 rounded font-mono">public.admin_users</code>, then click Retry.
+                </p>
+              )}
             </div>
           </div>
           {onRetry && (

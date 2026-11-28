@@ -358,8 +358,11 @@ export const SendingQueueView: React.FC = () => {
     }
     if (syncStatus === 'failed') {
       return {
-        label: 'Queue Synchronization Failed',
-        sub: syncErrorMessage || 'Backend queue worker is unreachable or database schema is unavailable.',
+        label: 'Queue Synchronization Offline',
+        sub:
+          syncErrorCode === 'DATABASE_SCHEMA_MISSING'
+            ? 'Connected Supabase project database schema has not been initialized yet.'
+            : 'Unable to synchronize with queue backend. Inspect details below.',
         dotClass: 'bg-rose-500 animate-pulse',
         statusColor: 'text-rose-400',
         countdownText: 'Offline',
@@ -526,36 +529,37 @@ export const SendingQueueView: React.FC = () => {
         </div>
       )}
 
-      {/* 3. Campaign Selector Tabs */}
-      <div className="flex items-center justify-between gap-3 overflow-x-auto pb-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-semibold text-[#64748B] uppercase tracking-wider shrink-0">
-            Bulk Campaigns ({campaigns.length}):
-          </span>
-          <div className="flex flex-wrap items-center gap-1.5">
-            {campaigns.map((camp) => {
-              const isSelected = camp.id === selectedCampaignId;
-              return (
-                <button
-                  key={camp.id}
-                  type="button"
-                  onClick={() => handleSelectCampaign(camp.id)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all text-left truncate max-w-[220px] cursor-pointer ${
-                    isSelected
-                      ? 'bg-[#172E58] text-white shadow-xs'
-                      : 'bg-white text-[#1E293B] hover:bg-slate-100 border border-[#CBD5E1]'
-                  }`}
-                >
-                  <span className="truncate block">{camp.campaign_name}</span>
-                </button>
-              );
-            })}
+      {/* 3. Campaign Selector Tabs & 4. Active Campaign Dispatch Monitor (only when synced) */}
+      {syncStatus === 'synced' && (
+        <>
+          <div className="flex items-center justify-between gap-3 overflow-x-auto pb-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-semibold text-[#64748B] uppercase tracking-wider shrink-0">
+                Bulk Campaigns ({campaigns.length}):
+              </span>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {campaigns.map((camp) => {
+                  const isSelected = camp.id === selectedCampaignId;
+                  return (
+                    <button
+                      key={camp.id}
+                      type="button"
+                      onClick={() => handleSelectCampaign(camp.id)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all text-left truncate max-w-[220px] cursor-pointer ${
+                        isSelected
+                          ? 'bg-[#172E58] text-white shadow-xs'
+                          : 'bg-white text-[#1E293B] hover:bg-slate-100 border border-[#CBD5E1]'
+                      }`}
+                    >
+                      <span className="truncate block">{camp.campaign_name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
 
-      {/* 4. Active Campaign Dispatch Monitor */}
-      {activeCampaign ? (
+          {activeCampaign ? (
         <div className="bg-[#172E58] rounded-[14px] p-4 sm:p-6 text-white shadow-card border border-[#1456AD]/40 space-y-5">
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-white/10 pb-4">
             <div className="min-w-0">
@@ -691,6 +695,8 @@ export const SendingQueueView: React.FC = () => {
           <p className="font-semibold text-[#172E58]">No campaigns currently in the queue</p>
           <p className="text-xs text-slate-500 mt-1">Import a recipient list to prepare and launch a campaign.</p>
         </Card>
+      )}
+        </>
       )}
 
       {/* 5. In-Flight Spotlight & Sequential Execution Protocol */}
