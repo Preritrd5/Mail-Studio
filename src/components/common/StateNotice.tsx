@@ -2,6 +2,7 @@ import React from 'react';
 import { AlertCircle, Database, Lock, RefreshCw, Inbox, LogIn } from 'lucide-react';
 import { Card } from './Card';
 import { Button } from './Button';
+import { PageLoader } from './Loading';
 import { useAuth } from '../../context/AuthContext';
 
 export type DataStateKind = 'loading' | 'auth_required' | 'error' | 'empty';
@@ -68,14 +69,13 @@ export const StateNotice: React.FC<StateNoticeProps> = ({
   const { openAuthModal } = useAuth();
 
   if (kind === 'loading') {
-    const content = (
-      <div className="flex flex-col items-center justify-center text-center py-8 gap-2.5">
-        <RefreshCw size={22} className="animate-spin text-[#1456AD]" />
-        <p className="text-xs font-semibold text-[#172E58]">{title || 'Loading live data from backend...'}</p>
-        {message && <p className="text-[11px] text-[#64748B] max-w-md">{message}</p>}
-      </div>
+    return (
+      <PageLoader
+        compact={compact}
+        title={title || 'Loading live data from backend...'}
+        subtitle={message}
+      />
     );
-    return compact ? content : <Card>{content}</Card>;
   }
 
   if (kind === 'auth_required') {

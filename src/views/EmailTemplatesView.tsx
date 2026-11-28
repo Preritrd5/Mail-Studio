@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef } from 'react';
+import { parseHtmlToBlocks } from '../services/templateHtmlParser';
 import { 
   Plus, 
   Eye, 
@@ -42,6 +43,7 @@ import { Select } from '../components/common/Select';
 import { Modal } from '../components/common/Modal';
 import { BrandWordmark } from '../components/common/BrandWordmark';
 import { StateNotice } from '../components/common/StateNotice';
+import { LoadingSpinner, CardSkeleton, SyncStatusPill } from '../components/common/Loading';
 import { BlockBasedEditor } from '../components/templates/BlockBasedEditor';
 import { useApp } from '../context/AppContext';
 import { EmailTemplateItem, TemplateVersionRecord, EmailBlock } from '../types';
@@ -91,6 +93,12 @@ export const EmailTemplatesView: React.FC = () => {
   const [deleteModalError, setDeleteModalError] = useState<string | null>(null);
   const [isDeletingTemplate, setIsDeletingTemplate] = useState(false);
   const [isSavingTemplate, setIsSavingTemplate] = useState(false);
+  const [isArchivingTemplate, setIsArchivingTemplate] = useState(false);
+  const [pendingCardAction, setPendingCardAction] = useState<{
+    id: string;
+    type: 'duplicate' | 'restore';
+  } | null>(null);
+  const [previewSyncing, setPreviewSyncing] = useState(false);
   const [historyTemplate, setHistoryTemplate] = useState<EmailTemplateItem | null>(null);
   const [selectedVersionSnapshot, setSelectedVersionSnapshot] = useState<TemplateVersionRecord | null>(null);
 
@@ -175,7 +183,9 @@ export const EmailTemplatesView: React.FC = () => {
   // Open Edit Modal with existing template values
   const openEditModal = (tpl: EmailTemplateItem) => {
     setEditingTemplate(tpl);
-    const initialBlocks = getBlankTemplateBlocks();
+    const rawHtml = tpl.html_content || '';
+    const parsed = parseHtmlToBlocks(rawHtml);
+    const initialBlocks = parsed.blocks.length > 0 ? parsed.blocks : getBlankTemplateBlocks();
     setActiveBlocks(initialBlocks);
 
     setFormData({
@@ -183,11 +193,11 @@ export const EmailTemplatesView: React.FC = () => {
       category: tpl.category,
       description: tpl.description || '',
       subject: tpl.subject,
-      html_content: tpl.html_content || renderBlocksToHtml(initialBlocks),
+      html_content: rawHtml || renderBlocksToHtml(initialBlocks),
       text_content: tpl.text_content || tpl.contentPreview || renderBlocksToText(initialBlocks),
       change_summary: '',
     });
-    setEditorMode('blocks');
+    setEditorMode(parsed.isCustomRawHtml && rawHtml.trim() ? 'html' : 'blocks');
   };
 
   // Handle block changes and sync HTML/Text
@@ -446,10 +456,15 @@ export const EmailTemplatesView: React.FC = () => {
 
             {/* Top Right: Refresh & Create New Template Button */}
             <div className="flex flex-wrap items-center gap-2 shrink-0">
+              {isLoadingTemplates && templates.length > 0 && (
+                <SyncStatusPill label="Syncing templates..." />
+              )}
               <Button
                 variant="outline"
                 size="sm"
-                icon={<RefreshCw size={13} className={isLoadingTemplates ? 'animate-spin' : ''} />}
+                isLoading={isLoadingTemplates}
+                loadingText="Syncing..."
+                icon={<RefreshCw size={13} />}
                 onClick={() => refreshTemplates()}
                 title="Synchronize templates with Supabase backend"
               >
@@ -503,7 +518,11 @@ export const EmailTemplatesView: React.FC = () => {
 
       {/* Templates Gallery Grid / Live Load States */}
       {templateLoadState.status === 'loading' && templates.length === 0 ? (
-        <StateNotice kind="loading" title="Loading email templates from backend..." />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          {[1, 2, 3, 4].map((idx) => (
+            <CardSkeleton key={`tpl-sk-${idx}`} variant="template" />
+          ))}
+        </div>
       ) : templateLoadState.status === 'auth_required' ? (
         <StateNotice
           kind="auth_required"
@@ -635,7 +654,18 @@ export const EmailTemplatesView: React.FC = () => {
                   <div className="flex items-center gap-1 shrink-0 self-end sm:self-auto">
                     {/* Preview Button */}
                     <button
-                      onClick={() => setPreviewTemplate(tpl)}
+                      type="button"
+                      onClick={() => {
+                        setPreviewTemplate(tpl);
+                        setPreviewSyncing(true);
+                        TemplateService.previewTemplate({
+                          template_id: tpl.id,
+                          version: tpl.version || 1,
+                          subject: tpl.subject,
+                          html_content: tpl.html_content || '',
+                          text_content: tpl.text_content || '',
+                        }).finally(() => setPreviewSyncing(false));
+                      }}
                       className="p-1.5 rounded-md text-[#64748B] hover:text-[#1456AD] hover:bg-[#EBF3FC] transition-colors cursor-pointer"
                       title="Preview Template (Desktop & Mobile Simulation)"
                     >
@@ -653,21 +683,49 @@ export const EmailTemplatesView: React.FC = () => {
 
                     {/* Duplicate Button */}
                     <button
-                      onClick={() => duplicateTemplate(tpl.id)}
-                      className="p-1.5 rounded-md text-[#64748B] hover:text-[#C69A4C] hover:bg-[#FDF8EE] transition-colors cursor-pointer"
+                      type="button"
+                      disabled={pendingCardAction !== null}
+                      onClick={async () => {
+                        if (pendingCardAction) return;
+                        setPendingCardAction({ id: tpl.id, type: 'duplicate' });
+                        try {
+                          await duplicateTemplate(tpl.id);
+                        } finally {
+                          setPendingCardAction(null);
+                        }
+                      }}
+                      className="p-1.5 rounded-md text-[#64748B] hover:text-[#C69A4C] hover:bg-[#FDF8EE] transition-colors cursor-pointer disabled:opacity-50"
                       title="Duplicate Template"
                     >
-                      <Copy size={15} />
+                      {pendingCardAction?.id === tpl.id && pendingCardAction.type === 'duplicate' ? (
+                        <LoadingSpinner size="sm" tone="gold" label="Duplicating template" />
+                      ) : (
+                        <Copy size={15} />
+                      )}
                     </button>
 
                     {/* Archive or Restore Button */}
                     {isArchived ? (
                       <button
-                        onClick={() => restoreTemplate(tpl.id)}
-                        className="p-1.5 rounded-md text-[#64748B] hover:text-emerald-700 hover:bg-emerald-50 transition-colors cursor-pointer"
+                        type="button"
+                        disabled={pendingCardAction !== null}
+                        onClick={async () => {
+                          if (pendingCardAction) return;
+                          setPendingCardAction({ id: tpl.id, type: 'restore' });
+                          try {
+                            await restoreTemplate(tpl.id);
+                          } finally {
+                            setPendingCardAction(null);
+                          }
+                        }}
+                        className="p-1.5 rounded-md text-[#64748B] hover:text-emerald-700 hover:bg-emerald-50 transition-colors cursor-pointer disabled:opacity-50"
                         title="Restore Template to Active Status"
                       >
-                        <RotateCcw size={15} />
+                        {pendingCardAction?.id === tpl.id && pendingCardAction.type === 'restore' ? (
+                          <LoadingSpinner size="sm" label="Restoring template" />
+                        ) : (
+                          <RotateCcw size={15} />
+                        )}
                       </button>
                     ) : (
                       <button
@@ -789,7 +847,9 @@ export const EmailTemplatesView: React.FC = () => {
               </div>
 
               {/* Format Toggle */}
-              <div className="grid grid-cols-2 sm:inline-flex items-center gap-1 bg-white p-1 rounded-md border border-[#CBD5E1] w-full sm:w-auto">
+              <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-end">
+                {previewSyncing && <SyncStatusPill label="Generating preview..." />}
+                <div className="grid grid-cols-2 sm:inline-flex items-center gap-1 bg-white p-1 rounded-md border border-[#CBD5E1] w-full sm:w-auto">
                 <button
                   type="button"
                   onClick={() => setPreviewFormat('html')}
@@ -812,6 +872,7 @@ export const EmailTemplatesView: React.FC = () => {
                 >
                   Plain Text
                 </button>
+              </div>
               </div>
             </div>
 
@@ -896,22 +957,30 @@ export const EmailTemplatesView: React.FC = () => {
       {archiveTargetId && (
         <Modal
           isOpen={true}
-          onClose={() => setArchiveTargetId(null)}
+          onClose={() => !isArchivingTemplate && setArchiveTargetId(null)}
           title="Archive Email Template"
           subtitle="Are you sure you want to archive this template?"
           maxWidth="sm"
           footer={
             <>
-              <Button variant="outline" size="sm" onClick={() => setArchiveTargetId(null)}>
+              <Button variant="outline" size="sm" disabled={isArchivingTemplate} onClick={() => setArchiveTargetId(null)}>
                 Cancel
               </Button>
               <Button 
                 variant="danger" 
                 size="sm" 
+                isLoading={isArchivingTemplate}
+                loadingText="Archiving..."
                 icon={<Archive size={14} />}
                 onClick={async () => {
-                  await archiveTemplate(archiveTargetId);
-                  setArchiveTargetId(null);
+                  if (isArchivingTemplate) return;
+                  setIsArchivingTemplate(true);
+                  try {
+                    await archiveTemplate(archiveTargetId);
+                    setArchiveTargetId(null);
+                  } finally {
+                    setIsArchivingTemplate(false);
+                  }
                 }}
               >
                 Archive Template
@@ -963,6 +1032,7 @@ export const EmailTemplatesView: React.FC = () => {
                 size="sm"
                 icon={<Trash2 size={14} />}
                 isLoading={isDeletingTemplate}
+                loadingText="Deleting..."
                 disabled={
                   isDeletingTemplate ||
                   ((deleteTargetTemplate.usageCount || 0) > 0 &&
@@ -1208,6 +1278,7 @@ export const EmailTemplatesView: React.FC = () => {
                   variant="primary" 
                   size="sm" 
                   isLoading={isSavingTemplate}
+                  loadingText={editingTemplate ? 'Saving Revision...' : 'Creating Template...'}
                   disabled={isSavingTemplate}
                   onClick={editingTemplate ? handleSaveEdit : handleSaveCreate}
                   className="font-bold"

@@ -33,6 +33,7 @@ import { Card, CardHeader } from '../components/common/Card';
 import { Button } from '../components/common/Button';
 import { Badge } from '../components/common/Badge';
 import { Select } from '../components/common/Select';
+import { LoadingSpinner, CardSkeleton, TableSkeleton, SyncStatusPill } from '../components/common/Loading';
 import { StateNotice, classifyApiError, DataStateKind } from '../components/common/StateNotice';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
@@ -251,8 +252,9 @@ export const ReportsView: React.FC = () => {
           </span>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          {refreshing && <SyncStatusPill label="Updating report..." />}
           <span
-            className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded flex items-center gap-1 whitespace-nowrap ${
+            className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded flex items-center gap-1.5 whitespace-nowrap ${
               backendConnected
                 ? 'bg-emerald-100 text-emerald-800'
                 : !user
@@ -263,7 +265,7 @@ export const ReportsView: React.FC = () => {
             <span
               className={`w-1.5 h-1.5 rounded-full shrink-0 ${
                 backendConnected
-                  ? 'bg-emerald-500 animate-pulse'
+                  ? 'bg-emerald-500'
                   : !user
                   ? 'bg-amber-500'
                   : 'bg-rose-500'
@@ -274,12 +276,12 @@ export const ReportsView: React.FC = () => {
           <button
             type="button"
             onClick={() => fetchReportsData(true)}
-            disabled={refreshing}
-            className="w-8 h-8 flex items-center justify-center hover:bg-slate-100 rounded-lg text-slate-500 hover:text-[#1456AD] transition-colors cursor-pointer"
+            disabled={refreshing || loading}
+            className="w-8 h-8 flex items-center justify-center hover:bg-slate-100 rounded-lg text-slate-500 hover:text-[#1456AD] transition-colors cursor-pointer disabled:opacity-50"
             title="Refresh analytics data"
             aria-label="Refresh analytics data"
           >
-            <RefreshCw size={14} className={refreshing ? 'animate-spin text-[#1456AD]' : ''} />
+            {refreshing ? <LoadingSpinner size="sm" label="Refreshing analytics" /> : <RefreshCw size={14} />}
           </button>
         </div>
       </div>
@@ -338,28 +340,39 @@ export const ReportsView: React.FC = () => {
               variant="outline"
               size="md"
               icon={<FileSpreadsheet size={15} />}
+              isLoading={exportingExcel}
+              loadingText="Exporting (.xlsx)..."
               onClick={handleExportExcel}
-              disabled={exportingExcel}
+              disabled={exportingExcel || exportingCsv}
               className="text-[#1456AD] font-semibold"
             >
-              {exportingExcel ? 'Exporting...' : 'Export Excel (.xlsx)'}
+              Export Excel (.xlsx)
             </Button>
             <Button
               variant="primary"
               size="md"
               icon={<Download size={15} />}
+              isLoading={exportingCsv}
+              loadingText="Exporting CSV..."
               onClick={handleExportCSV}
-              disabled={exportingCsv}
+              disabled={exportingCsv || exportingExcel}
               className="font-semibold"
             >
-              {exportingCsv ? 'Exporting...' : 'Export CSV'}
+              Export CSV
             </Button>
           </div>
         </div>
       </Card>
 
       {/* KPI Cards Grid (Reconciled Metrics) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {loading && !overview && !loadIssue ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {[1, 2, 3, 4].map((idx) => (
+            <CardSkeleton key={`rep-kpi-sk-${idx}`} variant="kpi" />
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card hoverable className="border-t-4 border-t-[#1456AD]">
           <span className="text-[11px] font-semibold text-[#64748B] uppercase tracking-wider">
             Total Unique Recipients
@@ -409,9 +422,20 @@ export const ReportsView: React.FC = () => {
           </p>
         </Card>
       </div>
+      )}
 
       {/* Visual Recharts Charts Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+      {loading && !overview && !loadIssue ? (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+          <div className="lg:col-span-7 min-w-0">
+            <CardSkeleton variant="chart" />
+          </div>
+          <div className="lg:col-span-5 min-w-0">
+            <CardSkeleton variant="chart" />
+          </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
         {/* Timeline Bar Chart (7 cols) */}
         <div className="lg:col-span-7 min-w-0 flex flex-col">
           <Card className="h-full flex flex-col justify-between">
@@ -515,6 +539,7 @@ export const ReportsView: React.FC = () => {
           </Card>
         </div>
       </div>
+      )}
 
       {/* Campaign Summary Table with Working Filters */}
       <Card>
@@ -555,7 +580,9 @@ export const ReportsView: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-[#CBD5E1]">
-              {displayCampaigns.length === 0 ? (
+              {loading && !overview && !loadIssue ? (
+                <TableSkeleton rows={5} columns={8} asTableRows />
+              ) : displayCampaigns.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="py-8 text-center text-slate-400">
                     No campaigns found matching selected filters.

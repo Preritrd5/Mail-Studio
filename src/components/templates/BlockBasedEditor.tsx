@@ -435,7 +435,10 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
               } bg-white overflow-hidden`}
             >
               {/* Block Header Row */}
-              <div className="p-2.5 bg-slate-50/70 border-b border-[#CBD5E1] flex items-center justify-between gap-2">
+              <div
+                onClick={() => toggleExpand(block.id)}
+                className="p-2.5 bg-slate-50/70 border-b border-[#CBD5E1] flex items-center justify-between gap-2 cursor-pointer hover:bg-slate-100/70 transition-colors"
+              >
                 <div className="flex items-center gap-2 min-w-0">
                   <span className="text-[10px] font-bold text-slate-400 font-mono w-4 shrink-0 text-center">
                     {index + 1}

@@ -53,17 +53,20 @@ export interface ActivityListResponse {
 }
 
 export const activityService = {
-  async listActivity(params: {
-    search?: string;
-    status?: string;
-    campaign_id?: string;
-    campaign_type?: string;
-    date_range?: string;
-    sort_by?: string;
-    sort_order?: string;
-    page?: number;
-    limit?: number;
-  } = {}): Promise<ActivityListResponse> {
+  async listActivity(
+    params: {
+      search?: string;
+      status?: string;
+      campaign_id?: string;
+      campaign_type?: string;
+      date_range?: string;
+      sort_by?: string;
+      sort_order?: string;
+      page?: number;
+      limit?: number;
+    } = {},
+    signal?: AbortSignal
+  ): Promise<ActivityListResponse> {
     const query = new URLSearchParams();
 
     if (params.search) query.append('search', params.search);
@@ -76,7 +79,7 @@ export const activityService = {
     if (params.page) query.append('page', String(params.page));
     if (params.limit) query.append('limit', String(params.limit));
 
-    const json = await fetchApiEnvelope<ActivityItem[]>(`/activity?${query.toString()}`);
+    const json = await fetchApiEnvelope<ActivityItem[]>(`/activity?${query.toString()}`, { signal });
 
     return {
       items: json.data || [],
@@ -89,8 +92,8 @@ export const activityService = {
     };
   },
 
-  async getActivityDetail(id: string): Promise<ActivityDetail> {
-    const json = await fetchApiEnvelope<ActivityDetail>(`/activity/${id}`);
+  async getActivityDetail(id: string, signal?: AbortSignal): Promise<ActivityDetail> {
+    const json = await fetchApiEnvelope<ActivityDetail>(`/activity/${id}`, { signal });
     return json.data;
   },
 

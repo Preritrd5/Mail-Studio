@@ -1,15 +1,15 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { 
-  Send, 
-  Eye, 
-  Edit3, 
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import {
+  Send,
+  Eye,
+  Edit3,
   RotateCcw,
   Sparkles,
   ShieldCheck,
   CheckCircle2,
   FileCode2,
   Unlink,
-  Link2
+  Link2,
 } from 'lucide-react';
 import { Card, CardHeader } from '../components/common/Card';
 import { Button } from '../components/common/Button';
@@ -17,10 +17,45 @@ import { Input } from '../components/common/Input';
 import { Select } from '../components/common/Select';
 import { Badge } from '../components/common/Badge';
 import { Modal } from '../components/common/Modal';
+import { LoadingSpinner } from '../components/common/Loading';
+import { EmailPreviewFrame } from '../components/common/EmailPreviewFrame';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import { TemplateService } from '../services/templateService';
+import { systemService } from '../services/systemService';
 import { getApiUrl } from '../services/apiConfig';
+import {
+  extractEditableMessageFromTemplateHtml,
+  syncMessageBodyIntoTemplateHtml,
+} from '../services/templateBodySync';
+
+interface ComposeDraftState {
+  recipientName: string;
+  recipient: string;
+  designation: string;
+  activationLink: string;
+  subject: string;
+  messageBody: string;
+  selectedTemplateId: string;
+  selectedTemplateVersion: number | null;
+  selectedTemplateName: string;
+  baseTemplateHtml: string | null;
+  bodyEditedAfterTemplateLoad: boolean;
+}
+
+const INITIAL_DRAFT: ComposeDraftState = {
+  recipientName: '',
+  recipient: '',
+  designation: '',
+  activationLink: '',
+  subject: '',
+  messageBody: '',
+  selectedTemplateId: '',
+  selectedTemplateVersion: null,
+  selectedTemplateName: '',
+  baseTemplateHtml: null,
+  bodyEditedAfterTemplateLoad: false,
+};
 
 function escapeHtmlSafe(val: string): string {
   return String(val || '')
@@ -129,6 +164,7 @@ function buildBrandedFreeformHtml(subjectLine: string, bodyText: string): string
 export const ComposeEmailView: React.FC = () => {
   const {
     templates,
+    isLoadingTemplates,
     templateLoadState,
     refreshTemplates,
     addToast,
@@ -139,105 +175,152 @@ export const ComposeEmailView: React.FC = () => {
   } = useApp();
   const { user, session, isAdmin, openAuthModal } = useAuth();
 
-  const [recipient, setRecipient] = useState('');
-  const [recipientName, setRecipientName] = useState('');
-  const [designation, setDesignation] = useState('');
-  const [activationLink, setActivationLink] = useState('');
-  const [subject, setSubject] = useState('');
-  const [messageBody, setMessageBody] = useState('');
-
-  const [selectedTemplateId, setSelectedTemplateId] = useState('');
-  const [selectedTemplateVersion, setSelectedTemplateVersion] = useState<number | null>(null);
-  const [selectedTemplateName, setSelectedTemplateName] = useState('');
-  const [customHtmlTemplate, setCustomHtmlTemplate] = useState<string | null>(null);
+  // One authoritative compose email draft state driving both Editor and Live Preview
+  const [draft, setDraft] = useState<ComposeDraftState>(INITIAL_DRAFT);
   const [templateRemovedNotice, setTemplateRemovedNotice] = useState<string | null>(null);
+  const [isLoadingSelectedTemplate, setIsLoadingSelectedTemplate] = useState(false);
 
+  // Responsive panel state: toggle buttons appear ONLY below 1024px (mobile/tablet)
+  const [isDesktopViewport, setIsDesktopViewport] = useState<boolean>(() =>
+    typeof window !== 'undefined' ? window.matchMedia('(min-width: 1024px)').matches : true
+  );
   const [activeTab, setActiveTab] = useState<'editor' | 'preview'>('editor');
+
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const handleMediaChange = () => setIsDesktopViewport(mq.matches);
+    handleMediaChange();
+    mq.addEventListener('change', handleMediaChange);
+    return () => mq.removeEventListener('change', handleMediaChange);
+  }, []);
+
+  // Live configured sender identity
+  const [smtpSenderEmail, setSmtpSenderEmail] = useState<string | null>(null);
+  useEffect(() => {
+    if (!user) return;
+    let mounted = true;
+    systemService
+      .getStatus()
+      .then((res) => {
+        if (mounted && res?.smtp?.sender_email) {
+          setSmtpSenderEmail(res.smtp.sender_email);
+        }
+      })
+      .catch(() => {
+        // Fallback displays brand name cleanly
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [user]);
+
   const [isSending, setIsSending] = useState(false);
   const [isLiveSendNoticeOpen, setIsLiveSendNoticeOpen] = useState(false);
   const [lastSmtpResult, setLastSmtpResult] = useState<any>(null);
+  const [errors, setErrors] = useState<{
+    recipient?: string;
+    recipientName?: string;
+    subject?: string;
+    body?: string;
+  }>({});
 
-  // Filter active templates for compose selector
+  const messageTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const lastFocusedInputRef = useRef<'subject' | 'body'>('body');
+
   const activeTemplates = useMemo(() => {
     return templates.filter((t) => t.is_active !== false && !t.archived_at);
   }, [templates]);
 
-  // Apply persisted template & exact version helper
-  const applyTemplateById = React.useCallback(async (tplId: string, targetVersion: number | null = null) => {
-    let found = templates.find((t) => t.id === tplId) || null;
+  // Apply saved template cleanly while extracting editable body for real-time syncing
+  const applyTemplateById = useCallback(
+    async (tplId: string, targetVersion: number | null = null) => {
+      let found = templates.find((t) => t.id === tplId) || null;
+      setIsLoadingSelectedTemplate(true);
 
-    // Attempt fetching full persisted record & version history from backend so exact HTML/version is preserved
-    try {
-      const apiRes = await TemplateService.getTemplateById(tplId);
-      if (apiRes.success && apiRes.template) {
-        found = apiRes.template;
+      try {
+        const apiRes = await TemplateService.getTemplateById(tplId);
+        if (apiRes.success && apiRes.template) {
+          found = apiRes.template;
+        }
+      } catch {
+        // Use synchronized list item if offline
+      } finally {
+        setIsLoadingSelectedTemplate(false);
       }
-    } catch {
-      // Fallback cleanly to local synced copy if offline
-    }
 
-    if (!found) {
-      addToast({
-        type: 'error',
-        title: 'Template Not Found',
-        message: 'Requested saved template could not be loaded.',
-      });
-      return;
-    }
-
-    // If a specific version number was requested, resolve that exact snapshot strictly
-    let effectiveTemplate = found;
-    if (targetVersion && Number(targetVersion) !== Number(found.version || 1)) {
-      const snap = (found.versions || []).find((v) => Number(v.version) === Number(targetVersion));
-      if (!snap) {
+      if (!found) {
         addToast({
           type: 'error',
-          title: 'Template Version Unavailable',
-          message: `Requested version v${targetVersion} of "${found.name}" could not be found.`,
+          title: 'Template Not Found',
+          message: 'Requested saved template could not be loaded.',
         });
         return;
       }
-      effectiveTemplate = {
-        ...found,
-        version: snap.version,
-        name: snap.name || found.name,
-        subject: snap.subject,
-        html_content: snap.html_content,
-        text_content: snap.text_content,
-      };
-    }
 
-    if (!effectiveTemplate.html_content || !effectiveTemplate.html_content.trim()) {
+      let effectiveTemplate = found;
+      if (targetVersion && Number(targetVersion) !== Number(found.version || 1)) {
+        const snap = (found.versions || []).find((v) => Number(v.version) === Number(targetVersion));
+        if (!snap) {
+          addToast({
+            type: 'error',
+            title: 'Template Version Unavailable',
+            message: `Requested version v${targetVersion} of "${found.name}" could not be found.`,
+          });
+          return;
+        }
+        effectiveTemplate = {
+          ...found,
+          version: snap.version,
+          name: snap.name || found.name,
+          subject: snap.subject,
+          html_content: snap.html_content,
+          text_content: snap.text_content,
+        };
+      }
+
+      if (!effectiveTemplate.html_content || !effectiveTemplate.html_content.trim()) {
+        addToast({
+          type: 'warning',
+          title: 'Missing HTML Layout',
+          message: `"${effectiveTemplate.name}" does not contain saved HTML content. Only plain-text fallback is available.`,
+        });
+      }
+
+      const extractedBody =
+        extractEditableMessageFromTemplateHtml(effectiveTemplate.html_content || '') ||
+        effectiveTemplate.text_content ||
+        effectiveTemplate.contentPreview ||
+        '';
+
+      setDraft((prev) => ({
+        ...prev,
+        selectedTemplateId: found!.id,
+        selectedTemplateVersion: effectiveTemplate.version || 1,
+        selectedTemplateName: effectiveTemplate.name,
+        subject: effectiveTemplate.subject || '',
+        messageBody: extractedBody,
+        baseTemplateHtml: effectiveTemplate.html_content || null,
+        bodyEditedAfterTemplateLoad: false,
+      }));
+      setTemplateRemovedNotice(null);
+
       addToast({
-        type: 'warning',
-        title: 'Missing HTML Layout',
-        message: `"${effectiveTemplate.name}" does not contain saved HTML content. Only plain-text fallback is available.`,
+        type: 'info',
+        title: 'Template Loaded',
+        message: `Loaded "${effectiveTemplate.name}" (v${effectiveTemplate.version || 1}) with full HTML layout.`,
       });
-    }
+    },
+    [templates, addToast]
+  );
 
-    setSelectedTemplateId(found.id);
-    setSelectedTemplateVersion(effectiveTemplate.version || 1);
-    setSelectedTemplateName(effectiveTemplate.name);
-    setSubject(effectiveTemplate.subject);
-    setMessageBody(effectiveTemplate.text_content || effectiveTemplate.contentPreview || '');
-    setCustomHtmlTemplate(effectiveTemplate.html_content || null);
-    setTemplateRemovedNotice(null);
-
-    addToast({
-      type: 'info',
-      title: 'Template Loaded',
-      message: `Loaded "${effectiveTemplate.name}" (v${effectiveTemplate.version || 1}) with full HTML layout.`,
-    });
-  }, [templates, addToast]);
-
-  // Handle preloaded template passed from Email Templates ("Use in Compose Email")
+  // Sync external "Use in Compose Email" trigger from EmailTemplatesView
   useEffect(() => {
     if (selectedComposeTemplateId) {
       const idToLoad = selectedComposeTemplateId;
       const verToLoad = selectedComposeTemplateVersion;
       setSelectedComposeTemplateId(null);
       setSelectedComposeTemplateVersion(null);
-      applyTemplateById(idToLoad, verToLoad);
+      void applyTemplateById(idToLoad, verToLoad);
     }
   }, [
     selectedComposeTemplateId,
@@ -247,19 +330,22 @@ export const ComposeEmailView: React.FC = () => {
     applyTemplateById,
   ]);
 
-  // Preserve unsent draft cleanly if an attached template is permanently deleted elsewhere
+  // Guard unsent draft if linked template is deleted elsewhere
   useEffect(() => {
     if (
-      selectedTemplateId &&
+      draft.selectedTemplateId &&
       templateLoadState.status === 'loaded' &&
-      !templates.some((t) => t.id === selectedTemplateId)
+      !templates.some((t) => t.id === draft.selectedTemplateId)
     ) {
-      const removedName = selectedTemplateName || 'Previously attached template';
-      setSelectedTemplateId('');
-      setSelectedTemplateVersion(null);
-      setSelectedTemplateName('');
+      const removedName = draft.selectedTemplateName || 'Previously attached template';
+      setDraft((prev) => ({
+        ...prev,
+        selectedTemplateId: '',
+        selectedTemplateVersion: null,
+        selectedTemplateName: '',
+      }));
       setTemplateRemovedNotice(
-        `"${removedName}" was permanently deleted from Email Templates. Your draft subject and HTML/text body were preserved as custom content.`
+        `"${removedName}" was permanently deleted from Email Templates. Your draft subject and body were preserved as custom content.`
       );
       addToast({
         type: 'warning',
@@ -267,19 +353,19 @@ export const ComposeEmailView: React.FC = () => {
         message: `"${removedName}" was deleted, but your active email draft has been preserved.`,
       });
     }
-  }, [selectedTemplateId, selectedTemplateName, templateLoadState.status, templates, addToast]);
+  }, [draft.selectedTemplateId, draft.selectedTemplateName, templateLoadState.status, templates, addToast]);
 
-  // Validation errors
-  const [errors, setErrors] = useState<{ recipient?: string; recipientName?: string; subject?: string; body?: string }>({});
-
-  const placeholderContext = useMemo(() => ({
-    recipient_name: recipientName.trim() || '[Recipient Name]',
-    recipient_email: recipient.trim() || '[Recipient Email]',
-    institution_name: 'SNPSUNEXUS',
-    designation: designation.trim() || '[Designation]',
-    activation_link: activationLink.trim() || 'https://snpsunexus.vercel.app',
-    current_year: String(new Date().getFullYear()),
-  }), [recipientName, recipient, designation, activationLink]);
+  const placeholderContext = useMemo(
+    () => ({
+      recipient_name: draft.recipientName.trim() || '[Recipient Name]',
+      recipient_email: draft.recipient.trim() || '[Recipient Email]',
+      institution_name: 'SNPSUNEXUS',
+      designation: draft.designation.trim() || '[Designation]',
+      activation_link: draft.activationLink.trim() || 'https://snpsunexus.vercel.app',
+      current_year: String(new Date().getFullYear()),
+    }),
+    [draft.recipientName, draft.recipient, draft.designation, draft.activationLink]
+  );
 
   const availableVariables = [
     { token: '{{recipient_name}}', label: 'Recipient Name', sample: placeholderContext.recipient_name },
@@ -290,25 +376,31 @@ export const ComposeEmailView: React.FC = () => {
     { token: '{{current_year}}', label: 'Current Year', sample: placeholderContext.current_year },
   ];
 
-  // Template dropdown change handler
   const handleTemplateChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const tplId = e.target.value;
     if (!tplId) {
-      setSelectedTemplateId('');
-      setSelectedTemplateVersion(null);
-      setSelectedTemplateName('');
-      setCustomHtmlTemplate(null);
+      setDraft((prev) => ({
+        ...prev,
+        selectedTemplateId: '',
+        selectedTemplateVersion: null,
+        selectedTemplateName: '',
+        baseTemplateHtml: null,
+        bodyEditedAfterTemplateLoad: false,
+      }));
       return;
     }
-    applyTemplateById(tplId, null);
+    void applyTemplateById(tplId, null);
   };
 
-  // Detach HTML template if admin wants to convert back to pure free-form email
   const handleDetachTemplate = () => {
-    setSelectedTemplateId('');
-    setSelectedTemplateVersion(null);
-    setSelectedTemplateName('');
-    setCustomHtmlTemplate(null);
+    setDraft((prev) => ({
+      ...prev,
+      selectedTemplateId: '',
+      selectedTemplateVersion: null,
+      selectedTemplateName: '',
+      baseTemplateHtml: null,
+      bodyEditedAfterTemplateLoad: false,
+    }));
     addToast({
       type: 'info',
       title: 'Template Detached',
@@ -316,33 +408,50 @@ export const ComposeEmailView: React.FC = () => {
     });
   };
 
-  // Insert token helper
   const insertVariable = (token: string) => {
-    setMessageBody((prev) => prev + ' ' + token + ' ');
+    if (lastFocusedInputRef.current === 'subject') {
+      const inputEl = document.getElementById('compose-subject-input') as HTMLInputElement | null;
+      const start = inputEl?.selectionStart ?? draft.subject.length;
+      const end = inputEl?.selectionEnd ?? start;
+      setDraft((prev) => ({
+        ...prev,
+        subject: `${prev.subject.slice(0, start)}${token}${prev.subject.slice(end)}`,
+      }));
+      return;
+    }
+
+    const textareaEl = messageTextareaRef.current;
+    const start = textareaEl?.selectionStart ?? draft.messageBody.length;
+    const end = textareaEl?.selectionEnd ?? start;
+    setDraft((prev) => ({
+      ...prev,
+      messageBody: `${prev.messageBody.slice(0, start)}${token}${prev.messageBody.slice(end)}`,
+      bodyEditedAfterTemplateLoad: prev.baseTemplateHtml ? true : prev.bodyEditedAfterTemplateLoad,
+    }));
+    if (errors.body) setErrors((prev) => ({ ...prev, body: undefined }));
   };
 
-  // Form Validation
   const validateForm = () => {
     const newErrors: { recipient?: string; recipientName?: string; subject?: string; body?: string } = {};
 
-    if (!recipient.trim()) {
+    if (!draft.recipient.trim()) {
       newErrors.recipient = 'Recipient email address is required.';
     } else {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(recipient.trim())) {
+      if (!emailRegex.test(draft.recipient.trim())) {
         newErrors.recipient = 'Please enter a valid email address.';
       }
     }
 
-    if (!recipientName.trim()) {
+    if (!draft.recipientName.trim()) {
       newErrors.recipientName = 'Recipient name is required.';
     }
 
-    if (!subject.trim()) {
+    if (!draft.subject.trim()) {
       newErrors.subject = 'Email subject line is required.';
     }
 
-    if (!customHtmlTemplate && !messageBody.trim()) {
+    if (!draft.baseTemplateHtml && !draft.messageBody.trim()) {
       newErrors.body = 'Email body message cannot be empty.';
     }
 
@@ -350,44 +459,31 @@ export const ComposeEmailView: React.FC = () => {
     return Object.keys(newErrors).length === 0;
   };
 
-  // Live interpolated Subject, Plain Text, and Full HTML Card
+  // Single live rendering pipeline shared by Live Preview and SMTP dispatch
   const renderedSubject = useMemo(() => {
-    return interpolatePlaceholders(subject, placeholderContext, false);
-  }, [subject, placeholderContext]);
+    return interpolatePlaceholders(draft.subject, placeholderContext, false);
+  }, [draft.subject, placeholderContext]);
 
   const renderedMessage = useMemo(() => {
-    return interpolatePlaceholders(messageBody, placeholderContext, false);
-  }, [messageBody, placeholderContext]);
+    return interpolatePlaceholders(draft.messageBody, placeholderContext, false);
+  }, [draft.messageBody, placeholderContext]);
 
   const renderedLiveHtml = useMemo(() => {
-    if (customHtmlTemplate && customHtmlTemplate.trim()) {
-      return interpolatePlaceholders(customHtmlTemplate, placeholderContext, true);
+    if (draft.baseTemplateHtml && draft.baseTemplateHtml.trim()) {
+      const workingTemplateHtml = draft.bodyEditedAfterTemplateLoad
+        ? syncMessageBodyIntoTemplateHtml(draft.baseTemplateHtml, draft.messageBody)
+        : draft.baseTemplateHtml;
+      return interpolatePlaceholders(workingTemplateHtml, placeholderContext, true);
     }
     return buildBrandedFreeformHtml(renderedSubject, renderedMessage);
-  }, [customHtmlTemplate, placeholderContext, renderedSubject, renderedMessage]);
-
-  const handleSend = async () => {
-    if (!validateForm()) {
-      addToast({
-        type: 'error',
-        title: 'Validation Incomplete',
-        message: 'Please resolve form errors before proceeding.',
-      });
-      return;
-    }
-
-    if (!user || !session?.access_token) {
-      addToast({
-        type: 'warning',
-        title: 'Authentication Required',
-        message: 'Please sign in as an administrator to dispatch emails.',
-      });
-      openAuthModal();
-      return;
-    }
-
-    await performLiveSend();
-  };
+  }, [
+    draft.baseTemplateHtml,
+    draft.bodyEditedAfterTemplateLoad,
+    draft.messageBody,
+    placeholderContext,
+    renderedSubject,
+    renderedMessage,
+  ]);
 
   const performLiveSend = async () => {
     setIsSending(true);
@@ -397,21 +493,24 @@ export const ComposeEmailView: React.FC = () => {
 
     try {
       const payload = {
-        ...(selectedTemplateId ? {
-          template_id: selectedTemplateId,
-          template_version: selectedTemplateVersion || 1,
-        } : {}),
-        recipient_name: recipientName.trim(),
-        recipient_email: recipient.trim().toLowerCase(),
-        designation: designation.trim() || 'Member',
-        activation_link: activationLink.trim() || 'https://snpsunexus.vercel.app/verify',
+        ...(draft.selectedTemplateId
+          ? {
+              template_id: draft.selectedTemplateId,
+              template_version: draft.selectedTemplateVersion || 1,
+            }
+          : {}),
+        recipient_name: draft.recipientName.trim(),
+        recipient_email: draft.recipient.trim().toLowerCase(),
+        designation: draft.designation.trim() || 'Member',
+        activation_link: draft.activationLink.trim() || 'https://snpsunexus.vercel.app/verify',
         institution_name: 'SNPSUNEXUS',
-        raw_subject: subject.trim(),
+        raw_subject: draft.subject.trim(),
         subject: renderedSubject.trim(),
-        text_content: renderedMessage || `${renderedSubject}\n\nRecipient: ${recipientName.trim()}`,
+        text_content:
+          renderedMessage || `${renderedSubject}\n\nRecipient: ${draft.recipientName.trim()}`,
         html_content: renderedLiveHtml,
-        campaign_name: selectedTemplateName
-          ? `${selectedTemplateName} (v${selectedTemplateVersion || 1})`
+        campaign_name: draft.selectedTemplateName
+          ? `${draft.selectedTemplateName} (v${draft.selectedTemplateVersion || 1})`
           : 'Individual Transactional Dispatch',
         idempotency_key: idempotencyKey,
       };
@@ -420,7 +519,7 @@ export const ComposeEmailView: React.FC = () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session?.access_token || ''}`,
+          Authorization: `Bearer ${session?.access_token || ''}`,
         },
         body: JSON.stringify(payload),
       });
@@ -455,7 +554,6 @@ export const ComposeEmailView: React.FC = () => {
         });
       }
     } catch (err: any) {
-      console.error('[Live Send Error]:', err);
       addToast({
         type: 'error',
         title: 'Connection Error',
@@ -466,17 +564,32 @@ export const ComposeEmailView: React.FC = () => {
     }
   };
 
+  const handleSend = async () => {
+    if (isSending) return;
+    if (!validateForm()) {
+      addToast({
+        type: 'error',
+        title: 'Validation Incomplete',
+        message: 'Please resolve form errors before proceeding.',
+      });
+      return;
+    }
+
+    if (!user || !session?.access_token) {
+      addToast({
+        type: 'warning',
+        title: 'Authentication Required',
+        message: 'Please sign in as an administrator to dispatch emails.',
+      });
+      openAuthModal();
+      return;
+    }
+
+    await performLiveSend();
+  };
+
   const handleReset = () => {
-    setRecipient('');
-    setRecipientName('');
-    setDesignation('');
-    setActivationLink('');
-    setSubject('');
-    setMessageBody('');
-    setSelectedTemplateId('');
-    setSelectedTemplateVersion(null);
-    setSelectedTemplateName('');
-    setCustomHtmlTemplate(null);
+    setDraft(INITIAL_DRAFT);
     setTemplateRemovedNotice(null);
     setErrors({});
     addToast({
@@ -486,12 +599,12 @@ export const ComposeEmailView: React.FC = () => {
     });
   };
 
-  const wordCount = messageBody.trim() ? messageBody.trim().split(/\s+/).length : 0;
-  const charCount = messageBody.length;
+  const wordCount = draft.messageBody.trim() ? draft.messageBody.trim().split(/\s+/).length : 0;
+  const charCount = draft.messageBody.length;
 
   return (
     <div className="space-y-6">
-      {/* View Header with Mode Toggles */}
+      {/* View Header — Exact Original Layout + Mobile/Tablet-Only Panel Toggle (< 1024px) */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="min-w-0">
           <h2 className="text-xl font-bold text-[#172E58]">Single Email Dispatch</h2>
@@ -501,39 +614,47 @@ export const ComposeEmailView: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-2 shrink-0">
-          {/* Tab buttons for mobile/desktop switcher */}
-          <div className="flex items-center p-1 bg-white border border-[#CBD5E1] rounded-[10px] shadow-2xs min-h-10">
-            <button
-              type="button"
-              onClick={() => setActiveTab('editor')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 min-h-8 rounded-[7px] text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
-                activeTab === 'editor'
-                  ? 'bg-[#1456AD] text-white shadow-xs'
-                  : 'text-[#64748B] hover:text-[#172E58]'
-              }`}
+          {/* Toggle buttons strictly restricted to tablet/mobile viewports (< 1024px); absent from DOM on desktop */}
+          {!isDesktopViewport && (
+            <div
+              data-testid="compose-mobile-panel-toggle"
+              className="flex lg:hidden items-center p-1 bg-white border border-[#CBD5E1] rounded-[10px] shadow-2xs min-h-10 transition-opacity duration-150"
             >
-              <Edit3 size={14} className="shrink-0" />
-              <span>Editor</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('preview')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 min-h-8 rounded-[7px] text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
-                activeTab === 'preview'
-                  ? 'bg-[#1456AD] text-white shadow-xs'
-                  : 'text-[#64748B] hover:text-[#172E58]'
-              }`}
-            >
-              <Eye size={14} className="shrink-0" />
-              <span>Live Preview</span>
-            </button>
-          </div>
+              <button
+                type="button"
+                data-testid="compose-toggle-editor"
+                onClick={() => setActiveTab('editor')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 min-h-8 rounded-[7px] text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
+                  activeTab === 'editor'
+                    ? 'bg-[#1456AD] text-white shadow-xs'
+                    : 'text-[#64748B] hover:text-[#172E58]'
+                }`}
+              >
+                <Edit3 size={14} className="shrink-0" />
+                <span>Editor</span>
+              </button>
+              <button
+                type="button"
+                data-testid="compose-toggle-preview"
+                onClick={() => setActiveTab('preview')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 min-h-8 rounded-[7px] text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
+                  activeTab === 'preview'
+                    ? 'bg-[#1456AD] text-white shadow-xs'
+                    : 'text-[#64748B] hover:text-[#172E58]'
+                }`}
+              >
+                <Eye size={14} className="shrink-0" />
+                <span>Live Preview</span>
+              </button>
+            </div>
+          )}
 
           <Button
             variant="outline"
             size="md"
             icon={<RotateCcw size={14} />}
             onClick={handleReset}
+            disabled={isSending}
             className="cursor-pointer"
           >
             Clear
@@ -544,6 +665,7 @@ export const ComposeEmailView: React.FC = () => {
             size="md"
             icon={<Send size={14} />}
             isLoading={isSending}
+            loadingText="Dispatching..."
             onClick={handleSend}
             className="cursor-pointer font-semibold shadow-xs"
           >
@@ -555,7 +677,12 @@ export const ComposeEmailView: React.FC = () => {
       {/* Two Column Grid: Editor (Left) & Live HTML Card Preview (Right) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
         {/* Left Column: Form Editor (6 cols) */}
-        <div className={`lg:col-span-6 min-w-0 flex flex-col ${activeTab === 'preview' ? 'hidden lg:flex' : 'flex'}`}>
+        <div
+          data-testid="compose-editor-panel"
+          className={`lg:col-span-6 min-w-0 flex-col transition-opacity duration-150 ${
+            isDesktopViewport || activeTab === 'editor' ? 'flex' : 'hidden lg:flex'
+          }`}
+        >
           <Card className="h-full flex flex-col">
             <CardHeader
               title="Message Composition"
@@ -574,14 +701,23 @@ export const ComposeEmailView: React.FC = () => {
               {/* Template Selection Dropdown */}
               <div>
                 <Select
+                  id="compose-template-select"
                   label={
                     <span className="flex items-center justify-between gap-2 w-full">
-                      <span>Apply Saved Template</span>
-                      <span className="text-[11px] font-normal text-[#64748B]">Preserves HTML &amp; version</span>
+                      <span className="inline-flex items-center gap-2">
+                        <span>Apply Saved Template</span>
+                        {(isLoadingTemplates || isLoadingSelectedTemplate) && (
+                          <LoadingSpinner size="sm" label="Loading saved templates" />
+                        )}
+                      </span>
+                      <span className="text-[11px] font-normal text-[#64748B]">
+                        Preserves HTML &amp; version
+                      </span>
                     </span>
                   }
-                  value={selectedTemplateId}
+                  value={draft.selectedTemplateId}
                   onChange={handleTemplateChange}
+                  disabled={isLoadingSelectedTemplate}
                 >
                   <option value="">
                     {activeTemplates.length === 0
@@ -611,16 +747,17 @@ export const ComposeEmailView: React.FC = () => {
               </div>
 
               {/* Active HTML Template Safeguard Indicator */}
-              {selectedTemplateId && customHtmlTemplate && (
+              {draft.selectedTemplateId && draft.baseTemplateHtml && (
                 <div className="p-3 rounded-xl bg-[#EEF4FF] border border-[#1456AD]/30 text-xs text-[#172E58] flex items-start justify-between gap-2">
                   <div className="flex items-start gap-2">
                     <FileCode2 size={16} className="text-[#1456AD] shrink-0 mt-0.5" />
                     <div>
                       <span className="font-bold block">
-                        HTML Template Active: {selectedTemplateName} (v{selectedTemplateVersion || 1})
+                        HTML Template Active: {draft.selectedTemplateName} (v
+                        {draft.selectedTemplateVersion || 1})
                       </span>
                       <span className="text-[11px] text-[#475569] block mt-0.5">
-                        Full branded SNPSUNEXUS card HTML will be rendered and dispatched via Gmail SMTP.
+                        Edits to subject, recipient fields, or message content synchronize live into this HTML card.
                       </span>
                     </div>
                   </div>
@@ -651,24 +788,29 @@ export const ComposeEmailView: React.FC = () => {
               {/* Recipient Credentials row */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Input
+                  id="compose-recipient-name"
                   label="Recipient Full Name"
                   placeholder="Enter recipient full name"
-                  value={recipientName}
+                  value={draft.recipientName}
                   onChange={(e) => {
-                    setRecipientName(e.target.value);
-                    if (errors.recipientName) setErrors((prev) => ({ ...prev, recipientName: undefined }));
+                    const val = e.target.value;
+                    setDraft((prev) => ({ ...prev, recipientName: val }));
+                    if (errors.recipientName)
+                      setErrors((prev) => ({ ...prev, recipientName: undefined }));
                   }}
                   error={errors.recipientName}
                   required
                 />
 
                 <Input
+                  id="compose-recipient-email"
                   label="Recipient Email Address"
                   type="email"
                   placeholder="recipient@domain.com"
-                  value={recipient}
+                  value={draft.recipient}
                   onChange={(e) => {
-                    setRecipient(e.target.value);
+                    const val = e.target.value;
+                    setDraft((prev) => ({ ...prev, recipient: val }));
                     if (errors.recipient) setErrors((prev) => ({ ...prev, recipient: undefined }));
                   }}
                   error={errors.recipient}
@@ -679,29 +821,42 @@ export const ComposeEmailView: React.FC = () => {
               {/* Template Context Row: Designation & Activation URL */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Input
+                  id="compose-designation"
                   label="Designation / Role"
                   placeholder="e.g. Coordinator"
-                  value={designation}
-                  onChange={(e) => setDesignation(e.target.value)}
+                  value={draft.designation}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setDraft((prev) => ({ ...prev, designation: val }));
+                  }}
                 />
 
                 <Input
+                  id="compose-activation-link"
                   label="Action / Portal Link"
                   type="url"
                   placeholder="https://snpsunexus.vercel.app"
-                  value={activationLink}
-                  onChange={(e) => setActivationLink(e.target.value)}
+                  value={draft.activationLink}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setDraft((prev) => ({ ...prev, activationLink: val }));
+                  }}
                   leftIcon={<Link2 size={14} />}
                 />
               </div>
 
               {/* Subject Line */}
               <Input
+                id="compose-subject-input"
                 label="Email Subject Line"
                 placeholder="e.g. Official Notification — {{recipient_name}}"
-                value={subject}
+                value={draft.subject}
+                onFocus={() => {
+                  lastFocusedInputRef.current = 'subject';
+                }}
                 onChange={(e) => {
-                  setSubject(e.target.value);
+                  const val = e.target.value;
+                  setDraft((prev) => ({ ...prev, subject: val }));
                   if (errors.subject) setErrors((prev) => ({ ...prev, subject: undefined }));
                 }}
                 error={errors.subject}
@@ -733,21 +888,33 @@ export const ComposeEmailView: React.FC = () => {
                 </div>
               </div>
 
-              {/* Plain-Text Alternative / Message Body Textarea */}
+              {/* Email Message Content Textarea (Synchronized in Real Time for Both Blank & Readymade Templates) */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-xs font-semibold text-[#172E58]">
-                    {customHtmlTemplate ? 'Plain-Text Fallback Alternative' : 'Email Message Content'} {!customHtmlTemplate && <span className="text-red-500">*</span>}
+                  <label htmlFor="compose-message-body" className="text-xs font-semibold text-[#172E58]">
+                    Email Message Content <span className="text-red-500">*</span>
                   </label>
                   <span className="text-[11px] text-[#64748B]">
-                    {wordCount} words • {charCount} characters
+                    {wordCount} words &bull; {charCount} characters
                   </span>
                 </div>
                 <textarea
-                  rows={customHtmlTemplate ? 8 : 12}
-                  value={messageBody}
+                  ref={messageTextareaRef}
+                  id="compose-message-body"
+                  rows={draft.baseTemplateHtml ? 10 : 12}
+                  value={draft.messageBody}
+                  onFocus={() => {
+                    lastFocusedInputRef.current = 'body';
+                  }}
                   onChange={(e) => {
-                    setMessageBody(e.target.value);
+                    const val = e.target.value;
+                    setDraft((prev) => ({
+                      ...prev,
+                      messageBody: val,
+                      bodyEditedAfterTemplateLoad: prev.baseTemplateHtml
+                        ? true
+                        : prev.bodyEditedAfterTemplateLoad,
+                    }));
                     if (errors.body) setErrors((prev) => ({ ...prev, body: undefined }));
                   }}
                   placeholder="Type your message here. Insert tokens using the buttons above..."
@@ -762,7 +929,12 @@ export const ComposeEmailView: React.FC = () => {
         </div>
 
         {/* Right Column: Live Email HTML Preview (6 cols) */}
-        <div className={`lg:col-span-6 min-w-0 flex flex-col ${activeTab === 'editor' ? 'hidden lg:flex' : 'flex'}`}>
+        <div
+          data-testid="compose-preview-panel"
+          className={`lg:col-span-6 min-w-0 flex-col transition-opacity duration-150 ${
+            isDesktopViewport || activeTab === 'preview' ? 'flex' : 'hidden lg:flex'
+          }`}
+        >
           <Card className="h-full flex flex-col">
             <CardHeader
               title="Live Email Preview"
@@ -787,12 +959,16 @@ export const ComposeEmailView: React.FC = () => {
                 <div className="grid grid-cols-4 gap-1 text-[11px]">
                   <span className="text-[#64748B] font-medium">From:</span>
                   <span className="col-span-3 text-[#172E58] font-bold truncate">
-                    SNPSUNEXUS
+                    {smtpSenderEmail ? `SNPSUNEXUS <${smtpSenderEmail}>` : 'SNPSUNEXUS'}
                   </span>
 
                   <span className="text-[#64748B] font-medium">To:</span>
                   <span className="col-span-3 text-[#1E293B] font-mono truncate">
-                    {recipient ? (recipientName ? `${recipientName} <${recipient}>` : recipient) : '(No recipient specified)'}
+                    {draft.recipient
+                      ? draft.recipientName
+                        ? `${draft.recipientName} <${draft.recipient}>`
+                        : draft.recipient
+                      : '(No recipient specified)'}
                   </span>
 
                   <span className="text-[#64748B] font-medium">Subject:</span>
@@ -802,21 +978,14 @@ export const ComposeEmailView: React.FC = () => {
                 </div>
               </div>
 
-              {/* Isolated Responsive Iframe showing Exact Outgoing HTML Card */}
-              <div className="bg-slate-100 border border-[#CBD5E1] rounded-[12px] overflow-hidden shadow-xs">
-                <iframe
-                  title="Compose Live Email Card Preview"
-                  srcDoc={renderedLiveHtml}
-                  className="w-full border-0"
-                  style={{
-                    width: '100%',
-                    height: '580px',
-                    display: 'block',
-                    background: '#F4F6FA',
-                  }}
-                  sandbox="allow-same-origin"
-                />
-              </div>
+              {/* Zero-Flicker Isolated Iframe showing Exact Outgoing HTML Card */}
+              <EmailPreviewFrame
+                html={renderedLiveHtml}
+                title="Compose Live Email Card Preview"
+                minHeight={580}
+                maxHeight={580}
+                seamless
+              />
             </div>
           </Card>
         </div>
@@ -830,9 +999,9 @@ export const ComposeEmailView: React.FC = () => {
         subtitle="SMTP Transmission Completed"
         maxWidth="md"
         footer={
-          <Button 
-            variant="primary" 
-            size="sm" 
+          <Button
+            variant="primary"
+            size="sm"
             onClick={() => setIsLiveSendNoticeOpen(false)}
             className="cursor-pointer"
           >
@@ -851,16 +1020,29 @@ export const ComposeEmailView: React.FC = () => {
           </div>
 
           <div className="p-3 bg-[#F8FAFC] border border-[#CBD5E1] rounded-lg font-mono text-[11px] space-y-1">
-            <div><strong>From:</strong> SNPSUNEXUS</div>
-            <div><strong>Recipient:</strong> {recipient}</div>
-            <div><strong>Subject:</strong> {lastSmtpResult?.data?.rendered_subject || renderedSubject}</div>
+            <div>
+              <strong>From:</strong> {smtpSenderEmail ? `SNPSUNEXUS <${smtpSenderEmail}>` : 'SNPSUNEXUS'}
+            </div>
+            <div>
+              <strong>Recipient:</strong> {draft.recipient}
+            </div>
+            <div>
+              <strong>Subject:</strong> {lastSmtpResult?.data?.rendered_subject || renderedSubject}
+            </div>
             {lastSmtpResult?.data?.template_id && (
-              <div><strong>Template:</strong> {lastSmtpResult.data.template_id} (v{lastSmtpResult.data.template_version || 1})</div>
+              <div>
+                <strong>Template:</strong> {lastSmtpResult.data.template_id} (v
+                {lastSmtpResult.data.template_version || 1})
+              </div>
             )}
-            <div><strong>Message ID:</strong> {lastSmtpResult?.data?.smtp_message_id || '250 2.0.0 OK'}</div>
+            <div>
+              <strong>Message ID:</strong> {lastSmtpResult?.data?.smtp_message_id || '250 2.0.0 OK'}
+            </div>
             {lastSmtpResult?.data?.mime_diagnostics && (
               <div>
-                <strong>MIME Verification:</strong> HTML ({lastSmtpResult.data.mime_diagnostics.html_bytes} B) + Text ({lastSmtpResult.data.mime_diagnostics.text_bytes} B) {lastSmtpResult.data.mime_diagnostics.has_inline_logo ? '+ CID Logo Attached' : ''}
+                <strong>MIME Verification:</strong> HTML ({lastSmtpResult.data.mime_diagnostics.html_bytes}{' '}
+                B) + Text ({lastSmtpResult.data.mime_diagnostics.text_bytes} B){' '}
+                {lastSmtpResult.data.mime_diagnostics.has_inline_logo ? '+ Inline Brand Logo (HTTPS)' : ''}
               </div>
             )}
           </div>

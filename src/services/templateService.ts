@@ -377,18 +377,23 @@ export class TemplateService {
   /**
    * Safe server-side preview rendering with placeholder interpolation & security checks
    */
-  public static async previewTemplate(data: {
-    template_id?: string;
-    version?: number;
-    subject: string;
-    html_content: string;
-    text_content?: string;
-    variables?: Record<string, string>;
-  }): Promise<{
+  public static async previewTemplate(
+    data: {
+      template_id?: string;
+      version?: number;
+      subject: string;
+      html_content: string;
+      text_content?: string;
+      variables?: Record<string, string>;
+    },
+    signal?: AbortSignal
+  ): Promise<{
     rendered_subject: string;
     rendered_html: string;
     rendered_text: string;
     unsupported_placeholders: string[];
+    unresolved_placeholders?: string[];
+    sender_identity?: { name: string; email: string | null };
     success: boolean;
     error?: string;
     statusCode?: number;
@@ -400,6 +405,7 @@ export class TemplateService {
         : '/templates/preview';
       const json = await fetchApiEnvelope<any>(endpoint, {
         method: 'POST',
+        signal,
         body: JSON.stringify({
           ...data,
           context: data.variables,
@@ -407,11 +413,13 @@ export class TemplateService {
       });
 
       return {
-        rendered_subject: json.data?.rendered_subject || json.data?.subject || data.subject,
-        rendered_html: json.data?.rendered_html || json.data?.html_content || data.html_content,
-        rendered_text: json.data?.rendered_text || json.data?.text_content || data.text_content || '',
+        rendered_subject: json.data?.rendered_subject ?? json.data?.subject ?? data.subject,
+        rendered_html: json.data?.rendered_html ?? json.data?.html_content ?? data.html_content,
+        rendered_text: json.data?.rendered_text ?? json.data?.text_content ?? data.text_content ?? '',
         unsupported_placeholders:
           json.data?.unsupported_placeholders || json.data?.unsupported_tokens || [],
+        unresolved_placeholders: json.data?.unresolved_placeholders || [],
+        sender_identity: json.data?.sender_identity,
         success: true,
       };
     } catch (err: any) {

@@ -10,6 +10,7 @@ const testSuites = [
   { name: 'Queue Sync, Defensive Routing & Auth Guards', file: 'backend/tests/test-queue-sync-and-preview.js', count: 5 },
   { name: 'Production Data Hygiene, Fail-Closed DB & Zero Fallback Audit', file: 'backend/tests/audit-production-hygiene.test.js', count: 10 },
   { name: 'Production API Contract, Auth Session, Error & CORS Verification', file: 'backend/tests/production-api-verification.test.js', count: 14 },
+  { name: 'Live Email Preview Synchronization & Shared Render Parity', file: 'backend/tests/live-preview-sync.test.js', count: 8 },
 ];
 
 console.log('================================================================');

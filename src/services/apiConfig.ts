@@ -108,10 +108,13 @@ export async function parseApiEnvelope<T = any>(response: Response): Promise<Api
 
 const inFlightGetRequests = new Map<string, Promise<ApiEnvelope<any>>>();
 
+const DEFAULT_REQUEST_TIMEOUT_MS = 25000;
+
 export async function fetchApiEnvelope<T = any>(
   endpoint: string,
   options: RequestInit = {},
-  includeJsonContentType = true
+  includeJsonContentType = true,
+  timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS
 ): Promise<ApiEnvelope<T>> {
   const defaultHeaders: Record<string, string> = includeJsonContentType
     ? { 'Content-Type': 'application/json' }
@@ -133,18 +136,55 @@ export async function fetchApiEnvelope<T = any>(
   }
 
   const exec = async (): Promise<ApiEnvelope<T>> => {
+    const controller = new AbortController();
+    const externalSignal = options.signal;
+    let timedOut = false;
+
+    const handleExternalAbort = () => controller.abort();
+    if (externalSignal) {
+      if (externalSignal.aborted) {
+        const abortErr: any = new Error('Request aborted');
+        abortErr.name = 'AbortError';
+        throw abortErr;
+      }
+      externalSignal.addEventListener('abort', handleExternalAbort, { once: true });
+    }
+
+    const timerId = window.setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs);
+
     let res: Response;
     try {
       res = await fetch(url, {
         ...options,
+        signal: controller.signal,
         headers: mergedHeaders,
       });
     } catch (networkErr: any) {
+      if (externalSignal?.aborted) {
+        const abortErr: any = new Error('Request aborted');
+        abortErr.name = 'AbortError';
+        throw abortErr;
+      }
+      if (timedOut) {
+        throw new ApiError(
+          'Request timed out waiting for server response. Please retry.',
+          408,
+          'REQUEST_TIMEOUT'
+        );
+      }
       throw new ApiError(
         networkErr?.message || 'Unable to reach SNPSUNEXUS backend service.',
         503,
         'NETWORK_UNAVAILABLE'
       );
+    } finally {
+      window.clearTimeout(timerId);
+      if (externalSignal) {
+        externalSignal.removeEventListener('abort', handleExternalAbort);
+      }
     }
 
     return parseApiEnvelope<T>(res);
@@ -161,18 +201,60 @@ export async function fetchApiEnvelope<T = any>(
   return pending;
 }
 
-export async function fetchApiBlob(endpoint: string): Promise<Blob> {
+export async function fetchApiBlob(
+  endpoint: string,
+  options: { signal?: AbortSignal; timeoutMs?: number } = {}
+): Promise<Blob> {
+  const { signal: externalSignal, timeoutMs = 45000 } = options;
   const authHeaders = await getAuthHeaders();
+
+  const controller = new AbortController();
+  let timedOut = false;
+
+  const handleExternalAbort = () => controller.abort();
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      const abortErr: any = new Error('Export aborted');
+      abortErr.name = 'AbortError';
+      throw abortErr;
+    }
+    externalSignal.addEventListener('abort', handleExternalAbort, { once: true });
+  }
+
+  const timerId = window.setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
 
   let res: Response;
   try {
-    res = await fetch(getApiUrl(endpoint), { headers: authHeaders });
+    res = await fetch(getApiUrl(endpoint), {
+      headers: authHeaders,
+      signal: controller.signal,
+    });
   } catch (networkErr: any) {
+    if (externalSignal?.aborted) {
+      const abortErr: any = new Error('Export aborted');
+      abortErr.name = 'AbortError';
+      throw abortErr;
+    }
+    if (timedOut) {
+      throw new ApiError(
+        'Export generation timed out. Please retry or narrow your filter.',
+        408,
+        'REQUEST_TIMEOUT'
+      );
+    }
     throw new ApiError(
       networkErr?.message || 'Unable to reach SNPSUNEXUS backend service.',
       503,
       'NETWORK_UNAVAILABLE'
     );
+  } finally {
+    window.clearTimeout(timerId);
+    if (externalSignal) {
+      externalSignal.removeEventListener('abort', handleExternalAbort);
+    }
   }
 
   if (!res.ok) {

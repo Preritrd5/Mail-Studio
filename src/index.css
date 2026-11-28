@@ -13,6 +13,24 @@
   --snpsu-muted: #64748B;
 }
 
+@keyframes snpsu-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes snpsu-skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
 @layer base {
   *,
   *::before,
@@ -48,6 +66,42 @@
   }
   ::-webkit-scrollbar-thumb:hover {
     background: #94A3B8;
+  }
+}
+
+@layer components {
+  .snpsu-spinner {
+    display: inline-block;
+    border-radius: 9999px;
+    border-style: solid;
+    animation: snpsu-spin 0.78s linear infinite;
+    will-change: transform;
+  }
+
+  .snpsu-skeleton {
+    background: linear-gradient(90deg, #E2E8F0 25%, #F1F5F9 50%, #E2E8F0 75%);
+    background-size: 200% 100%;
+    animation: snpsu-skeleton-shimmer 1.6s ease-in-out infinite;
+    border-radius: 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .snpsu-spinner {
+    animation-duration: 2.2s;
+  }
+
+  .snpsu-skeleton {
+    animation: none;
+    background: #E2E8F0;
+  }
+
+  .animate-spin {
+    animation-duration: 2.2s;
+  }
+
+  .animate-pulse {
+    animation: none;
   }
 }
 

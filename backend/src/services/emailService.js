@@ -41,8 +41,8 @@ export async function executeSendIndividualEmail(rawPayload, user, admin = null)
       templateId: sanitized.template_id,
       templateVersion: sanitized.template_version,
       subjectOverride: sanitized.raw_subject || sanitized.subject || null,
-      htmlOverride: null, // Strictly use persisted saved HTML template structure
-      textOverride: sanitized.text_content || null,
+      htmlOverride: sanitized.html_content && sanitized.html_content.trim() ? sanitized.html_content : null,
+      textOverride: sanitized.text_content && sanitized.text_content.trim() ? sanitized.text_content : null,
       recipientData: recipientContext,
       requireHtml: true,
       strict: true,
@@ -73,6 +73,15 @@ export async function executeSendIndividualEmail(rawPayload, user, admin = null)
     } else if (finalHtml) {
       finalText = htmlToPlainTextFallback(finalHtml);
     }
+    resolvedTemplateSnapshot = {
+      id: null,
+      name: sanitized.campaign_name || 'Custom Email',
+      category: 'Custom',
+      version: 1,
+      subject: sanitized.raw_subject || sanitized.subject || finalSubject,
+      html_content: sanitized.html_content || finalHtml || '',
+      text_content: sanitized.text_content || finalText || '',
+    };
     renderDiagnostics = {
       template_id: null,
       template_version: null,

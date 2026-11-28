@@ -35,6 +35,10 @@ const vercelBranchOrigin = process.env.VERCEL_BRANCH_URL
   : '';
 
 const defaultOrigin = vercelProductionOrigin || vercelDeployOrigin || 'http://localhost:5173';
+const publicAssetBaseUrl = cleanEnv(
+  process.env.PUBLIC_ASSET_URL,
+  vercelProductionOrigin || 'https://emaildraft.vercel.app'
+).replace(/\/+$/, '');
 function isValidHttpUrl(val) {
   if (!val) return false;
   try {
@@ -83,6 +87,7 @@ export const config = Object.freeze({
     ].filter(Boolean))
   ),
   appBaseUrl: cleanEnv(process.env.APP_BASE_URL, vercelProductionOrigin || vercelDeployOrigin || 'http://localhost:4000'),
+  publicAssetBaseUrl,
   supabaseUrl,
   rawSupabaseUrl,
   supabaseSecretKey,

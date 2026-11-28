@@ -30,6 +30,7 @@ import { Badge } from '../components/common/Badge';
 import { Input } from '../components/common/Input';
 import { Modal } from '../components/common/Modal';
 import { StateNotice } from '../components/common/StateNotice';
+import { TableSkeleton, ProgressIndicator, SyncStatusPill } from '../components/common/Loading';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import { ExportService } from '../services/exportService';
@@ -98,8 +99,17 @@ export const BulkImportView: React.FC = () => {
   const [isDragOver, setIsDragOver] = useState<boolean>(false);
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const [uploadProgress, setUploadProgress] = useState<number>(0);
+  const [uploadPhase, setUploadPhase] = useState<'uploading' | 'processing'>('uploading');
+  const [isResetting, setIsResetting] = useState<boolean>(false);
   const [activeBatch, setActiveBatch] = useState<ImportBatchRecord | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const uploadAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      uploadAbortRef.current?.abort();
+    };
+  }, []);
 
   // Step 2: Mapping Configuration State
   const [mappingState, setMappingState] = useState<{
@@ -241,22 +251,28 @@ export const BulkImportView: React.FC = () => {
   };
 
   const handleStartUpload = async () => {
-    if (!selectedFile) return;
+    if (!selectedFile || isUploading) return;
+
+    uploadAbortRef.current?.abort();
+    const controller = new AbortController();
+    uploadAbortRef.current = controller;
 
     setIsUploading(true);
-    setUploadProgress(25);
+    setUploadProgress(5);
+    setUploadPhase('uploading');
     setUploadError(null);
 
-    const progressTimer = setInterval(() => {
-      setUploadProgress((prev) => (prev < 90 ? prev + 15 : prev));
-    }, 150);
-
     try {
-      const res = await ImportService.uploadFile(selectedFile);
-      clearInterval(progressTimer);
-      setUploadProgress(100);
+      const res = await ImportService.uploadFile(selectedFile, {
+        signal: controller.signal,
+        onProgress: (pct, phase) => {
+          setUploadProgress(pct);
+          setUploadPhase(phase);
+        },
+      });
 
       if (res.success && res.batch) {
+        setUploadProgress(100);
         setActiveBatch(res.batch);
         localStorage.setItem(STORAGE_ACTIVE_BATCH_KEY, res.batch.id);
 
@@ -283,12 +299,17 @@ export const BulkImportView: React.FC = () => {
 
         // Advance to Step 2 (Configuration & Mapping)
         setCurrentStep(2);
-      } else {
+      } else if (res.errorCode !== 'ABORTED') {
         setUploadError(res.error || 'File upload failed. Ensure the spreadsheet is valid.');
       }
     } catch (err: any) {
-      setUploadError(err.message || 'An unexpected error occurred during upload.');
+      if (err?.name !== 'AbortError') {
+        setUploadError(err.message || 'An unexpected error occurred during upload.');
+      }
     } finally {
+      if (uploadAbortRef.current === controller) {
+        uploadAbortRef.current = null;
+      }
       setIsUploading(false);
     }
   };
@@ -471,20 +492,26 @@ export const BulkImportView: React.FC = () => {
 
   // Cancel / Reset Import
   const handleResetImport = async () => {
-    if (activeBatch?.id && activeBatch.status !== 'Committed' && !committedResult) {
-      await ImportService.cancelImport(activeBatch.id);
+    if (isResetting) return;
+    setIsResetting(true);
+    try {
+      if (activeBatch?.id && activeBatch.status !== 'Committed' && !committedResult) {
+        await ImportService.cancelImport(activeBatch.id);
+      }
+      localStorage.removeItem(STORAGE_ACTIVE_BATCH_KEY);
+      setActiveBatch(null);
+      setSelectedFile(null);
+      setStagedRows([]);
+      setCommittedResult(null);
+      setCurrentStep(1);
+      addToast({
+        type: 'info',
+        title: 'Import Reset',
+        message: 'Import workflow reset. Ready for new spreadsheet upload.',
+      });
+    } finally {
+      setIsResetting(false);
     }
-    localStorage.removeItem(STORAGE_ACTIVE_BATCH_KEY);
-    setActiveBatch(null);
-    setSelectedFile(null);
-    setStagedRows([]);
-    setCommittedResult(null);
-    setCurrentStep(1);
-    addToast({
-      type: 'info',
-      title: 'Import Reset',
-      message: 'Import workflow reset. Ready for new spreadsheet upload.',
-    });
   };
 
   // Download official clean two-column template (CSV, XLSX, or XLS)
@@ -567,6 +594,8 @@ export const BulkImportView: React.FC = () => {
               <Button
                 variant="ghost"
                 size="sm"
+                isLoading={isResetting}
+                loadingText="Cancelling..."
                 icon={<RefreshCw size={13} />}
                 onClick={handleResetImport}
                 className="text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50"
@@ -752,13 +781,36 @@ export const BulkImportView: React.FC = () => {
                 </div>
               )}
 
+              {isUploading && (
+                <div className="mt-3">
+                  <ProgressIndicator
+                    progress={uploadProgress}
+                    label={
+                      uploadPhase === 'processing'
+                        ? 'Parsing & validating recipient rows on server...'
+                        : 'Uploading recipient spreadsheet...'
+                    }
+                    subLabel={
+                      selectedFile
+                        ? `${selectedFile.name} (${(selectedFile.size / 1024).toFixed(1)} KB)`
+                        : undefined
+                    }
+                  />
+                </div>
+              )}
+
               {selectedFile && (
-                <div className="mt-4 pt-3 border-t border-[#CBD5E1] flex items-center justify-between">
-                  <span className="text-xs text-[#64748B]">Ready for server-side parsing & verification</span>
+                <div className="mt-4 pt-3 border-t border-[#CBD5E1] flex items-center justify-between gap-3">
+                  <span className="text-xs text-[#64748B]">
+                    {isUploading
+                      ? 'Transfer & validation active'
+                      : 'Ready for server-side parsing & verification'}
+                  </span>
                   <Button
                     variant="gold"
                     size="md"
                     isLoading={isUploading}
+                    loadingText={uploadPhase === 'processing' ? 'Validating Roster...' : 'Uploading...'}
                     onClick={handleStartUpload}
                     icon={<ArrowRight size={16} />}
                     className="font-bold"
@@ -942,6 +994,7 @@ export const BulkImportView: React.FC = () => {
                 variant="primary"
                 size="md"
                 isLoading={isUpdatingMapping}
+                loadingText="Validating Mapping..."
                 icon={<ArrowRight size={16} />}
                 onClick={handleApplyMapping}
                 className="font-bold"
@@ -1142,6 +1195,8 @@ export const BulkImportView: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-2">
+              {isUpdatingSelection && <SyncStatusPill label="Saving selection..." />}
+              {isLoadingRows && <SyncStatusPill label="Loading rows..." />}
               <span className="text-[#64748B]">Page {rowsPagination.page} of {rowsPagination.pages}</span>
               <div className="flex items-center gap-1">
                 <button
@@ -1176,7 +1231,10 @@ export const BulkImportView: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#CBD5E1]">
-                {stagedRows.map((row) => {
+                {isLoadingRows ? (
+                  <TableSkeleton rows={6} columns={6} asTableRows />
+                ) : (
+                stagedRows.map((row) => {
                   const isEligible = row.validation_status === 'valid' || row.validation_status === 'warning';
                   return (
                     <tr
@@ -1232,7 +1290,8 @@ export const BulkImportView: React.FC = () => {
                       </td>
                     </tr>
                   );
-                })}
+                })
+                )}
               </tbody>
             </table>
           </div>
@@ -1407,7 +1466,7 @@ export const BulkImportView: React.FC = () => {
       {/* STEP 6: FINAL REVIEW & COMMITMENT CONFIRMATION MODAL */}
       <Modal
         isOpen={isConfirmationModalOpen}
-        onClose={() => setIsConfirmationModalOpen(false)}
+        onClose={() => !isCommitting && setIsConfirmationModalOpen(false)}
         title="Final Review — Confirm Campaign Creation"
         subtitle="Verify roster parameters before committing to the permanent database"
         maxWidth="lg"
@@ -1425,6 +1484,7 @@ export const BulkImportView: React.FC = () => {
               variant="primary"
               size="md"
               isLoading={isCommitting}
+              loadingText="Committing Campaign..."
               onClick={handleConfirmCommit}
               className="font-bold bg-[#1456AD]"
             >

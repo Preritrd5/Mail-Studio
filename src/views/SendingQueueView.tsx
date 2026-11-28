@@ -22,6 +22,7 @@ import { Card, CardHeader } from '../components/common/Card';
 import { Button } from '../components/common/Button';
 import { Badge } from '../components/common/Badge';
 import { Modal } from '../components/common/Modal';
+import { LoadingSpinner, CardSkeleton, TableSkeleton, SyncStatusPill } from '../components/common/Loading';
 import { StateNotice, classifyApiError } from '../components/common/StateNotice';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
@@ -40,6 +41,8 @@ export const SendingQueueView: React.FC = () => {
   // State
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [backgroundSyncing, setBackgroundSyncing] = useState<boolean>(false);
+  const [isLoadingRecipients, setIsLoadingRecipients] = useState<boolean>(false);
   const [syncStatus, setSyncStatus] = useState<'syncing' | 'synced' | 'auth_required' | 'failed'>('syncing');
   const [syncErrorMessage, setSyncErrorMessage] = useState<string | null>(null);
   const [syncStatusCode, setSyncStatusCode] = useState<number | undefined>(undefined);
@@ -51,8 +54,10 @@ export const SendingQueueView: React.FC = () => {
   const [recipients, setRecipients] = useState<QueueRecipient[]>([]);
   const [events, setEvents] = useState<QueueEvent[]>([]);
 
-  // Action states
-  const [actionLoading, setActionLoading] = useState<boolean>(false);
+  // Action states (granular single-flight tracking so exact clicked button displays spinner)
+  type QueuePendingAction = 'start' | 'pause' | 'resume' | 'step' | 'cancel' | 'resolve' | null;
+  const [pendingAction, setPendingAction] = useState<QueuePendingAction>(null);
+  const actionLoading = pendingAction !== null;
   const [isCancelModalOpen, setIsCancelModalOpen] = useState<boolean>(false);
   const [resolvingRecipient, setResolvingRecipient] = useState<QueueRecipient | null>(null);
   const [resolutionChoice, setResolutionChoice] = useState<'sent' | 'failed'>('sent');
@@ -61,10 +66,18 @@ export const SendingQueueView: React.FC = () => {
   // 5-Second Interval Live Countdown
   const [countdownSeconds, setCountdownSeconds] = useState<number>(0);
 
-  // Concurrency & selection refs to prevent duplicate initial/polling calls
+  // Concurrency, mounted guard & selection refs to prevent duplicate or stale calls
+  const isMountedRef = React.useRef<boolean>(true);
   const isFetchingRef = React.useRef<boolean>(false);
   const selectedCampaignIdRef = React.useRef<string | null>(selectedCampaignId);
   selectedCampaignIdRef.current = selectedCampaignId;
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   // Load Queue Status
   const loadQueueData = useCallback(async (isSilent = false) => {
@@ -83,15 +96,18 @@ export const SendingQueueView: React.FC = () => {
       setSyncErrorCode('AUTH_REQUIRED');
       setLoading(false);
       setRefreshing(false);
+      setBackgroundSyncing(false);
       return;
     }
 
     if (isFetchingRef.current) return;
     isFetchingRef.current = true;
-    if (!isSilent) setRefreshing(true);
+    if (isSilent) setBackgroundSyncing(true);
+    else setRefreshing(true);
 
     try {
       const statusData = await queueService.getStatus();
+      if (!isMountedRef.current) return;
       setWorker(statusData.worker);
       setCampaigns(statusData.active_campaigns);
       setSyncStatus('synced');
@@ -111,6 +127,7 @@ export const SendingQueueView: React.FC = () => {
 
       if (targetId) {
         const details = await queueService.getCampaignDetails(targetId);
+        if (!isMountedRef.current) return;
         setActiveCampaign(details.campaign);
         setRecipients(details.recipients);
         setEvents(details.events);
@@ -120,6 +137,7 @@ export const SendingQueueView: React.FC = () => {
         setEvents([]);
       }
     } catch (err: any) {
+      if (!isMountedRef.current) return;
       const classified = classifyApiError(err, 'Unable to communicate with the sequential queue backend.');
       setWorker(null);
       setCampaigns([]);
@@ -132,8 +150,11 @@ export const SendingQueueView: React.FC = () => {
       setSyncErrorCode(classified.errorCode);
     } finally {
       isFetchingRef.current = false;
-      setLoading(false);
-      setRefreshing(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+        setRefreshing(false);
+        setBackgroundSyncing(false);
+      }
     }
   }, [isAuthLoading, user?.id]);
 
@@ -170,9 +191,10 @@ export const SendingQueueView: React.FC = () => {
   // Switch active campaign
   const handleSelectCampaign = async (campaignId: string) => {
     setSelectedCampaignId(campaignId);
-    setRefreshing(true);
+    setIsLoadingRecipients(true);
     try {
       const details = await queueService.getCampaignDetails(campaignId);
+      if (!isMountedRef.current) return;
       setActiveCampaign(details.campaign);
       setRecipients(details.recipients);
       setEvents(details.events);
@@ -183,16 +205,17 @@ export const SendingQueueView: React.FC = () => {
         message: err.message || 'Failed to load campaign records.',
       });
     } finally {
-      setRefreshing(false);
+      if (isMountedRef.current) setIsLoadingRecipients(false);
     }
   };
 
   // Start campaign
   const handleStart = async () => {
-    if (!activeCampaign) return;
-    setActionLoading(true);
+    if (!activeCampaign || actionLoading) return;
+    setPendingAction('start');
     try {
       const updated = await queueService.startCampaign(activeCampaign.id);
+      if (!isMountedRef.current) return;
       setActiveCampaign(updated);
       addToast({
         type: 'success',
@@ -203,16 +226,17 @@ export const SendingQueueView: React.FC = () => {
     } catch (err: any) {
       addToast({ type: 'error', title: 'Start Failed', message: err.message });
     } finally {
-      setActionLoading(false);
+      if (isMountedRef.current) setPendingAction(null);
     }
   };
 
   // Pause campaign
   const handlePause = async () => {
-    if (!activeCampaign) return;
-    setActionLoading(true);
+    if (!activeCampaign || actionLoading) return;
+    setPendingAction('pause');
     try {
       const updated = await queueService.pauseCampaign(activeCampaign.id);
+      if (!isMountedRef.current) return;
       setActiveCampaign(updated);
       addToast({
         type: 'info',
@@ -223,16 +247,17 @@ export const SendingQueueView: React.FC = () => {
     } catch (err: any) {
       addToast({ type: 'error', title: 'Pause Failed', message: err.message });
     } finally {
-      setActionLoading(false);
+      if (isMountedRef.current) setPendingAction(null);
     }
   };
 
   // Resume campaign
   const handleResume = async () => {
-    if (!activeCampaign) return;
-    setActionLoading(true);
+    if (!activeCampaign || actionLoading) return;
+    setPendingAction('resume');
     try {
       const updated = await queueService.resumeCampaign(activeCampaign.id);
+      if (!isMountedRef.current) return;
       setActiveCampaign(updated);
       addToast({
         type: 'success',
@@ -243,16 +268,17 @@ export const SendingQueueView: React.FC = () => {
     } catch (err: any) {
       addToast({ type: 'error', title: 'Resume Failed', message: err.message });
     } finally {
-      setActionLoading(false);
+      if (isMountedRef.current) setPendingAction(null);
     }
   };
 
   // Cancel campaign
   const handleCancel = async () => {
-    if (!activeCampaign) return;
-    setActionLoading(true);
+    if (!activeCampaign || actionLoading) return;
+    setPendingAction('cancel');
     try {
       const updated = await queueService.cancelCampaign(activeCampaign.id);
+      if (!isMountedRef.current) return;
       setActiveCampaign(updated);
       setIsCancelModalOpen(false);
       addToast({
@@ -264,15 +290,17 @@ export const SendingQueueView: React.FC = () => {
     } catch (err: any) {
       addToast({ type: 'error', title: 'Cancel Failed', message: err.message });
     } finally {
-      setActionLoading(false);
+      if (isMountedRef.current) setPendingAction(null);
     }
   };
 
   // Execute single manual step (for administrative step dispatch)
   const handleExecuteStep = async () => {
-    setActionLoading(true);
+    if (actionLoading) return;
+    setPendingAction('step');
     try {
       const stepRes = await queueService.executeStep();
+      if (!isMountedRef.current) return;
       if (stepRes.status === 'waiting_interval') {
         addToast({
           type: 'warning',
@@ -296,20 +324,21 @@ export const SendingQueueView: React.FC = () => {
     } catch (err: any) {
       addToast({ type: 'error', title: 'Step Execution Error', message: err.message });
     } finally {
-      setActionLoading(false);
+      if (isMountedRef.current) setPendingAction(null);
     }
   };
 
   // Submit outcome unknown resolution
   const handleResolveOutcome = async () => {
-    if (!resolvingRecipient) return;
-    setActionLoading(true);
+    if (!resolvingRecipient || actionLoading) return;
+    setPendingAction('resolve');
     try {
       await queueService.resolveOutcomeUnknown(
         resolvingRecipient.id,
         resolutionChoice,
         resolutionNotes
       );
+      if (!isMountedRef.current) return;
       addToast({
         type: 'success',
         title: 'Outcome Resolved',
@@ -321,7 +350,7 @@ export const SendingQueueView: React.FC = () => {
     } catch (err: any) {
       addToast({ type: 'error', title: 'Resolution Failed', message: err.message });
     } finally {
-      setActionLoading(false);
+      if (isMountedRef.current) setPendingAction(null);
     }
   };
 
@@ -455,6 +484,8 @@ export const SendingQueueView: React.FC = () => {
           </div>
 
           <div className="flex flex-wrap items-center gap-3 w-full md:w-auto justify-between md:justify-end shrink-0">
+            {backgroundSyncing && <SyncStatusPill tone="dark" label="Live Sync..." />}
+
             {/* 5-Second Interval Countdown Display */}
             <div className="bg-black/30 px-3.5 py-1.5 rounded-lg border border-white/10 text-right">
               <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 block">
@@ -471,7 +502,9 @@ export const SendingQueueView: React.FC = () => {
             <Button
               variant="outline"
               size="sm"
-              icon={<RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />}
+              isLoading={refreshing}
+              loadingText="Syncing..."
+              icon={<RefreshCw size={14} />}
               onClick={() => loadQueueData(false)}
               className="bg-white/10 text-white hover:bg-white/20 border-white/20"
             >
@@ -529,8 +562,31 @@ export const SendingQueueView: React.FC = () => {
         </div>
       )}
 
+      {/* Initial Queue Loading Skeletons */}
+      {loading && syncStatus === 'syncing' && (
+        <div className="space-y-6">
+          <CardSkeleton variant="list" />
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <div className="lg:col-span-7">
+              <CardSkeleton variant="list" />
+            </div>
+            <div className="lg:col-span-5">
+              <CardSkeleton variant="list" />
+            </div>
+          </div>
+          <Card>
+            <CardHeader
+              title="Sequential Queue Buffer & Recipient Ledger"
+              subtitle="Checking active worker heartbeats and campaign buffer..."
+              action={<SyncStatusPill label="Checking worker health..." />}
+            />
+            <TableSkeleton rows={5} columns={6} />
+          </Card>
+        </div>
+      )}
+
       {/* 3. Campaign Selector Tabs & 4. Active Campaign Dispatch Monitor (only when synced) */}
-      {syncStatus === 'synced' && (
+      {!loading && syncStatus === 'synced' && (
         <>
           <div className="flex items-center justify-between gap-3 overflow-x-auto pb-1">
             <div className="flex flex-wrap items-center gap-2">
@@ -599,6 +655,8 @@ export const SendingQueueView: React.FC = () => {
                 <Button
                   variant="outline"
                   size="md"
+                  isLoading={pendingAction === 'pause'}
+                  loadingText="Pausing..."
                   icon={<Pause size={16} />}
                   onClick={handlePause}
                   disabled={actionLoading}
@@ -610,6 +668,8 @@ export const SendingQueueView: React.FC = () => {
                 <Button
                   variant="gold"
                   size="md"
+                  isLoading={pendingAction === 'resume'}
+                  loadingText="Resuming..."
                   icon={<Play size={16} />}
                   onClick={handleResume}
                   disabled={actionLoading}
@@ -621,6 +681,8 @@ export const SendingQueueView: React.FC = () => {
                 <Button
                   variant="gold"
                   size="md"
+                  isLoading={pendingAction === 'start'}
+                  loadingText="Starting..."
                   icon={<Play size={16} />}
                   onClick={handleStart}
                   disabled={actionLoading}
@@ -634,6 +696,8 @@ export const SendingQueueView: React.FC = () => {
               <Button
                 variant="outline"
                 size="md"
+                isLoading={pendingAction === 'step'}
+                loadingText="Sending Step..."
                 icon={<ArrowRight size={16} />}
                 onClick={handleExecuteStep}
                 disabled={actionLoading || isCompleted || isCancelled}
@@ -774,8 +838,13 @@ export const SendingQueueView: React.FC = () => {
                     <span className={`flex items-center gap-1 font-medium ${worker?.policy?.smtp_tls_strict && worker?.healthy ? 'text-emerald-600' : 'text-slate-400'}`}>
                       <CheckCircle2 size={13} /> 2. TLS Transport
                     </span>
-                    <span className={`flex items-center gap-1 ${currentInFlight && worker?.healthy ? 'text-[#1456AD] font-semibold animate-pulse' : 'text-slate-400'}`}>
-                      <Send size={13} /> 3. SMTP Handshake
+                    <span className={`flex items-center gap-1.5 ${currentInFlight && worker?.healthy ? 'text-[#1456AD] font-semibold' : 'text-slate-400'}`}>
+                      {currentInFlight && worker?.healthy ? (
+                        <LoadingSpinner size="sm" label="SMTP handshake in progress" />
+                      ) : (
+                        <Send size={13} />
+                      )}
+                      3. SMTP Handshake
                     </span>
                     <span className={`flex items-center gap-1 ${countdownSeconds > 0 ? 'text-[#C69A4C] font-semibold' : 'text-slate-400'}`}>
                       <Clock size={13} /> 4. Interval Pacing
@@ -872,9 +941,12 @@ export const SendingQueueView: React.FC = () => {
           title="Sequential Queue Buffer & Recipient Ledger"
           subtitle="Ordered FIFO recipient records with persisted delivery outcomes"
           action={
-            <Badge variant="navy" size="sm">
-              FIFO Sequence ({recipients.length})
-            </Badge>
+            <div className="flex items-center gap-2">
+              {isLoadingRecipients && <SyncStatusPill label="Loading recipients..." />}
+              <Badge variant="navy" size="sm">
+                FIFO Sequence ({recipients.length})
+              </Badge>
+            </div>
           }
         />
 
@@ -891,7 +963,9 @@ export const SendingQueueView: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-[#CBD5E1]">
-              {recipients.length === 0 ? (
+              {loading || isLoadingRecipients ? (
+                <TableSkeleton rows={5} columns={6} asTableRows />
+              ) : recipients.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="py-8 text-center text-[#64748B]">
                     No recipient records found for this campaign.
@@ -991,18 +1065,20 @@ export const SendingQueueView: React.FC = () => {
       {/* Modal: Outcome Unknown Resolution */}
       <Modal
         isOpen={!!resolvingRecipient}
-        onClose={() => setResolvingRecipient(null)}
+        onClose={() => !actionLoading && setResolvingRecipient(null)}
         title="Resolve Uncertain Delivery Outcome"
         subtitle="Manual administrative resolution for socket timeout / connection drop"
         maxWidth="md"
         footer={
           <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 w-full">
-            <Button variant="outline" size="md" onClick={() => setResolvingRecipient(null)}>
+            <Button variant="outline" size="md" disabled={actionLoading} onClick={() => setResolvingRecipient(null)}>
               Cancel
             </Button>
             <Button 
               variant="gold" 
               size="md" 
+              isLoading={pendingAction === 'resolve'}
+              loadingText="Resolving..."
               onClick={handleResolveOutcome}
               disabled={actionLoading}
               className="font-bold"
@@ -1072,18 +1148,20 @@ export const SendingQueueView: React.FC = () => {
       {/* Confirmation Modal for Aborting Campaign */}
       <Modal
         isOpen={isCancelModalOpen}
-        onClose={() => setIsCancelModalOpen(false)}
+        onClose={() => !actionLoading && setIsCancelModalOpen(false)}
         title="Confirm Campaign Cancellation"
         subtitle="This action will permanently halt pending dispatches for this campaign"
         maxWidth="md"
         footer={
           <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 w-full">
-            <Button variant="outline" size="md" onClick={() => setIsCancelModalOpen(false)}>
+            <Button variant="outline" size="md" disabled={actionLoading} onClick={() => setIsCancelModalOpen(false)}>
               Keep Sending
             </Button>
             <Button 
               variant="danger" 
               size="md" 
+              isLoading={pendingAction === 'cancel'}
+              loadingText="Cancelling..."
               onClick={handleCancel}
               disabled={actionLoading}
             >

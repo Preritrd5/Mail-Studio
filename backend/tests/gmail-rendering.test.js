@@ -139,19 +139,22 @@ await runTest('5. HTML sanitization keeps table layout and strips XSS / unsafe U
   assert.ok(renderedHtml.includes('Safe Content Test User'));
 });
 
-// 6. Official logo rewritten to CID inline attachment
-await runTest('6. Official logo rewritten to cid:snpsunexus-logo@snpsunexus with PNG attachment', async () => {
-  const prepared = prepareOutgoingHtmlAndAssets('<img src="/assets/snpsunexus-logo.png" alt="SNPSUNEXUS" />');
+// 6. Official logo rewritten to verified public HTTPS asset with zero downloadable attachments
+await runTest('6. Official logo resolved to verified HTTPS asset without attachment parts', async () => {
+  const prepared = prepareOutgoingHtmlAndAssets(
+    '<img src="/assets/snpsunexus-logo.png" alt="SNPSUNEXUS" /><img src="http://localhost:5173/assets/snpsunexus-logo.png" alt="SNPSUNEXUS" />'
+  );
   assert.equal(prepared.hasInlineLogo, true);
-  assert.ok(prepared.html.includes('src="cid:snpsunexus-logo@snpsunexus"'));
-  assert.ok(!prepared.html.includes('/assets/snpsunexus-logo.png'));
-  assert.equal(prepared.attachments.length, 1);
-  assert.equal(prepared.attachments[0].cid, 'snpsunexus-logo@snpsunexus');
-  assert.equal(prepared.attachments[0].contentDisposition, 'inline');
+  assert.equal(prepared.logoDeliveryMode, 'public_https');
+  assert.ok(prepared.html.includes('src="https://emaildraft.vercel.app/assets/snpsunexus-logo.png"'));
+  assert.ok(!prepared.html.includes('/assets/snpsunexus-logo.png"') || prepared.html.includes('https://emaildraft.vercel.app/assets/snpsunexus-logo.png'));
+  assert.ok(!prepared.html.includes('http://localhost'));
+  assert.ok(!prepared.html.includes('cid:snpsunexus-logo@snpsunexus'));
+  assert.equal(prepared.attachments.length, 0);
 });
 
 // 7. Actual MIME stream inspection via Nodemailer streamTransport
-await runTest('7. Actual MIME structure contains From: SNPSUNEXUS, text/html, text/plain, and inline PNG logo', async () => {
+await runTest('7. Actual MIME structure contains From: SNPSUNEXUS, text/html, text/plain, and zero attachment parts', async () => {
   const streamTransporter = nodemailer.createTransport({
     streamTransport: true,
     newline: 'unix',
@@ -182,14 +185,16 @@ await runTest('7. Actual MIME structure contains From: SNPSUNEXUS, text/html, te
   });
 
   const rawMime = info.message.toString('utf8');
+  const decodedMime = rawMime.replace(/=\r?\n/g, '').replace(/=3D/gi, '=');
   assert.ok(rawMime.includes('From: SNPSUNEXUS <'), 'MIME From header must say SNPSUNEXUS');
   assert.ok(!rawMime.includes('SNPSUNEXUS Mail Studio'), 'MIME From must not say SNPSUNEXUS Mail Studio');
   assert.ok(rawMime.includes('Subject: =?UTF-8?') || rawMime.includes('Subject: Official Semester Examination Admit Card'));
   assert.ok(rawMime.includes('Content-Type: text/plain'));
   assert.ok(rawMime.includes('Content-Type: text/html'));
-  assert.ok(rawMime.includes('Content-Disposition: inline; filename=snpsunexus-logo.png'));
-  assert.ok(rawMime.includes('Content-ID: <snpsunexus-logo@snpsunexus>'));
-  assert.ok(rawMime.includes('cid:snpsunexus-logo@snpsunexus'));
+  assert.ok(decodedMime.includes('https://emaildraft.vercel.app/assets/snpsunexus-logo.png'));
+  assert.ok(!decodedMime.includes('Content-Disposition: attachment'), 'Must never attach logo as a downloadable attachment');
+  assert.ok(!decodedMime.includes('Content-Disposition: inline; filename=snpsunexus-logo.png'), 'Must not attach binary image filename triggering Gmail inbox pill');
+  assert.ok(!decodedMime.includes('http://localhost'));
 });
 
 // 8. Missing template version throws explicit error (No silent fallback)
@@ -259,10 +264,12 @@ await runTest('10. End-to-end individual send renders template, enforces idempot
   assert.ok(capturedMail);
   assert.ok(capturedMail.from.startsWith('"SNPSUNEXUS"'));
   assert.equal(capturedMail.subject, 'Official Notification — Arjun Sharma');
-  assert.ok(capturedMail.html.includes('cid:snpsunexus-logo@snpsunexus'));
+  assert.ok(capturedMail.html.includes('https://emaildraft.vercel.app/assets/snpsunexus-logo.png'));
+  assert.ok(!capturedMail.html.includes('cid:snpsunexus-logo@snpsunexus'));
+  assert.ok(!capturedMail.html.includes('http://localhost'));
   assert.ok(capturedMail.html.includes('Official Semester Examination Admit Card'));
   assert.ok(capturedMail.text.includes('Arjun Sharma'));
-  assert.equal(capturedMail.attachments?.[0]?.cid, 'snpsunexus-logo@snpsunexus');
+  assert.equal(capturedMail.attachments?.length || 0, 0);
 
   // Verify Activity ledger shows this send
   const actRepo = new ActivityRepository();

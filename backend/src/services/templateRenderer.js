@@ -175,9 +175,13 @@ export async function renderEmailFromTemplate({
     }
   }
 
-  const rawSubject = subjectOverride || resolvedTemplate?.subject || '';
-  const rawHtml = (resolvedTemplate ? resolvedTemplate.html_content : null) || htmlOverride || '';
-  const rawText = textOverride || resolvedTemplate?.text_content || '';
+  const hasSubjectOverride = typeof subjectOverride === 'string' && subjectOverride.trim().length > 0;
+  const hasHtmlOverride = typeof htmlOverride === 'string' && htmlOverride.trim().length > 0;
+  const hasTextOverride = typeof textOverride === 'string' && textOverride.trim().length > 0;
+
+  const rawSubject = hasSubjectOverride ? subjectOverride : (resolvedTemplate?.subject || '');
+  const rawHtml = hasHtmlOverride ? htmlOverride : (resolvedTemplate?.html_content || '');
+  const rawText = hasTextOverride ? textOverride : (resolvedTemplate?.text_content || '');
 
   if (requireHtml && (!rawHtml || !rawHtml.trim())) {
     throw {
@@ -244,11 +248,19 @@ export async function renderEmailFromTemplate({
           name: resolvedTemplate.name,
           category: resolvedTemplate.category || 'General Notifications',
           version: resolvedTemplate.version || 1,
-          subject: resolvedTemplate.subject,
-          html_content: resolvedTemplate.html_content,
-          text_content: resolvedTemplate.text_content || '',
+          subject: rawSubject,
+          html_content: rawHtml,
+          text_content: rawText || '',
         }
-      : null,
+      : {
+          id: null,
+          name: 'Custom Email',
+          category: 'Custom',
+          version: 1,
+          subject: rawSubject,
+          html_content: rawHtml,
+          text_content: rawText || '',
+        },
     renderedSubject,
     renderedHtml,
     renderedText,

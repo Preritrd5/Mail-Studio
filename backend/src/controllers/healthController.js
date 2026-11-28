@@ -112,6 +112,8 @@ export async function getSystemStatus(req, res, next) {
           status: smtpConfigured ? 'configured_unverified' : 'not_configured',
           host: smtpConfigured ? 'smtp.gmail.com:465' : null,
           tls_strict: smtpConfigured,
+          sender_name: config.senderName,
+          sender_email: config.gmailUser || null,
         },
         database: {
           connected: dbConnected,

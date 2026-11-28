@@ -43,25 +43,31 @@ export interface TimelineItem {
 }
 
 export const reportsService = {
-  async getOverview(params: { date_range?: string; campaign_type?: string; campaign_id?: string } = {}): Promise<OverviewMetrics> {
+  async getOverview(
+    params: { date_range?: string; campaign_type?: string; campaign_id?: string } = {},
+    signal?: AbortSignal
+  ): Promise<OverviewMetrics> {
     const query = new URLSearchParams();
     if (params.date_range && params.date_range !== 'all') query.append('date_range', params.date_range);
     if (params.campaign_type && params.campaign_type !== 'all') query.append('campaign_type', params.campaign_type);
     if (params.campaign_id) query.append('campaign_id', params.campaign_id);
 
-    const json = await fetchApiEnvelope<OverviewMetrics>(`/reports/overview?${query.toString()}`);
+    const json = await fetchApiEnvelope<OverviewMetrics>(`/reports/overview?${query.toString()}`, { signal });
     return json.data;
   },
 
-  async listCampaignReports(params: {
-    search?: string;
-    campaign_type?: string;
-    status?: string;
-    sort_by?: string;
-    sort_order?: string;
-    page?: number;
-    limit?: number;
-  } = {}): Promise<{ campaigns: CampaignReportItem[]; total: number }> {
+  async listCampaignReports(
+    params: {
+      search?: string;
+      campaign_type?: string;
+      status?: string;
+      sort_by?: string;
+      sort_order?: string;
+      page?: number;
+      limit?: number;
+    } = {},
+    signal?: AbortSignal
+  ): Promise<{ campaigns: CampaignReportItem[]; total: number }> {
     const query = new URLSearchParams();
     if (params.search) query.append('search', params.search);
     if (params.campaign_type && params.campaign_type !== 'all') query.append('campaign_type', params.campaign_type);
@@ -71,7 +77,7 @@ export const reportsService = {
     if (params.page) query.append('page', String(params.page));
     if (params.limit) query.append('limit', String(params.limit));
 
-    const json = await fetchApiEnvelope<CampaignReportItem[]>(`/reports/campaigns?${query.toString()}`);
+    const json = await fetchApiEnvelope<CampaignReportItem[]>(`/reports/campaigns?${query.toString()}`, { signal });
     return {
       campaigns: json.data || [],
       total: json.pagination?.total ?? (json.data ? json.data.length : 0),
@@ -83,14 +89,14 @@ export const reportsService = {
     return json.data;
   },
 
-  async getTimeline(days: number = 7): Promise<TimelineItem[]> {
-    const json = await fetchApiEnvelope<TimelineItem[]>(`/reports/timeline?days=${days}`);
+  async getTimeline(days: number = 7, signal?: AbortSignal): Promise<TimelineItem[]> {
+    const json = await fetchApiEnvelope<TimelineItem[]>(`/reports/timeline?days=${days}`, { signal });
     return json.data || [];
   },
 
-  async downloadCsv(type: 'activity' | 'campaigns' = 'activity', filters: Record<string, string> = {}): Promise<void> {
+  async downloadCsv(type: 'activity' | 'campaigns' = 'activity', filters: Record<string, string> = {}, signal?: AbortSignal): Promise<void> {
     const query = new URLSearchParams({ type, ...filters });
-    const blob = await fetchApiBlob(`/reports/export/csv?${query.toString()}`);
+    const blob = await fetchApiBlob(`/reports/export/csv?${query.toString()}`, { signal });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -101,8 +107,8 @@ export const reportsService = {
     document.body.removeChild(a);
   },
 
-  async downloadExcel(): Promise<void> {
-    const blob = await fetchApiBlob('/reports/export/xlsx');
+  async downloadExcel(signal?: AbortSignal): Promise<void> {
+    const blob = await fetchApiBlob('/reports/export/xlsx', { signal });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;

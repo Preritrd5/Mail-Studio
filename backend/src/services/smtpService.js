@@ -1,16 +1,5 @@
-import path from 'node:path';
-import fs from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import nodemailer from 'nodemailer';
 import { config } from '../config/env.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const LOGO_CANDIDATE_PATHS = [
-  path.resolve(__dirname, '../../../public/assets/snpsunexus-logo.png'),
-  path.resolve(process.cwd(), 'public/assets/snpsunexus-logo.png'),
-];
-const LOGO_ASSET_PATH = LOGO_CANDIDATE_PATHS.find((p) => fs.existsSync(p)) || LOGO_CANDIDATE_PATHS[0];
 
 let transporterInstance = null;
 
@@ -72,37 +61,46 @@ export async function verifySmtpConnection() {
   }
 }
 
+const PUBLIC_LOGO_URL = `${config.publicAssetBaseUrl}/assets/snpsunexus-logo.png`;
+
 /**
- * Rewrites local/relative SNPSUNEXUS logo URLs to MIME CID inline attachments
- * so images render crisply inside Gmail, Outlook, and Apple Mail.
+ * Resolves relative, localhost, or legacy CID SNPSUNEXUS logo references in outgoing
+ * emails to the verified public HTTPS asset URL so Gmail renders the logo inline inside
+ * the header and footer without showing a separate attachment pill in the inbox list.
  */
 export function prepareOutgoingHtmlAndAssets(html) {
   if (!html || typeof html !== 'string') {
-    return { html: '', attachments: [], hasInlineLogo: false };
+    return {
+      html: '',
+      attachments: [],
+      hasInlineLogo: false,
+      logoDeliveryMode: 'none',
+      resolvedLogoUrl: null,
+    };
   }
 
-  const logoRegex = /(?:https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?)?\/?assets\/snpsunexus-logo\.png/gi;
-  const usesOfficialLogo = logoRegex.test(html);
+  const logoRegex =
+    /(?:(?:https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?)?\/?assets\/snpsunexus-logo\.png|cid:snpsunexus-logo@snpsunexus)/gi;
+  const usesOfficialLogo = logoRegex.test(html) || html.includes(PUBLIC_LOGO_URL);
 
-  if (!usesOfficialLogo || !fs.existsSync(LOGO_ASSET_PATH)) {
-    return { html, attachments: [], hasInlineLogo: false };
+  if (!usesOfficialLogo) {
+    return {
+      html,
+      attachments: [],
+      hasInlineLogo: false,
+      logoDeliveryMode: 'none',
+      resolvedLogoUrl: null,
+    };
   }
 
-  const cidRef = 'snpsunexus-logo@snpsunexus';
-  const rewrittenHtml = html.replace(logoRegex, `cid:${cidRef}`);
+  const rewrittenHtml = html.replace(logoRegex, PUBLIC_LOGO_URL);
 
   return {
     html: rewrittenHtml,
     hasInlineLogo: true,
-    attachments: [
-      {
-        filename: 'snpsunexus-logo.png',
-        path: LOGO_ASSET_PATH,
-        cid: cidRef,
-        contentType: 'image/png',
-        contentDisposition: 'inline',
-      },
-    ],
+    logoDeliveryMode: 'public_https',
+    resolvedLogoUrl: PUBLIC_LOGO_URL,
+    attachments: [],
   };
 }
 
@@ -119,7 +117,13 @@ export function prepareOutgoingHtmlAndAssets(html) {
 export async function sendEmailViaSmtp({ to, toName, subject, html, text }) {
   const transporter = getSmtpTransporter();
 
-  const { html: finalHtml, attachments, hasInlineLogo } = prepareOutgoingHtmlAndAssets(html);
+  const {
+    html: finalHtml,
+    attachments,
+    hasInlineLogo,
+    logoDeliveryMode,
+    resolvedLogoUrl,
+  } = prepareOutgoingHtmlAndAssets(html);
 
   const mailOptions = {
     from: `"${config.senderName}" <${config.gmailUser}>`,
@@ -134,6 +138,9 @@ export async function sendEmailViaSmtp({ to, toName, subject, html, text }) {
     has_html: Boolean(finalHtml && finalHtml.trim().length > 0),
     has_text: Boolean(text && text.trim().length > 0),
     has_inline_logo: hasInlineLogo,
+    logo_delivery_mode: logoDeliveryMode,
+    resolved_logo_url: resolvedLogoUrl,
+    attachment_count: attachments.length,
     html_bytes: finalHtml ? Buffer.byteLength(finalHtml, 'utf8') : 0,
     text_bytes: text ? Buffer.byteLength(text, 'utf8') : 0,
   };

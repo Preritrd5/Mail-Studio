@@ -16,6 +16,8 @@ export interface SystemStatusResponse {
     status?: 'operational' | 'configured_unverified' | 'not_configured' | 'unavailable';
     host: string | null;
     tls_strict: boolean;
+    sender_name?: string;
+    sender_email?: string | null;
   };
   database: {
     connected: boolean;

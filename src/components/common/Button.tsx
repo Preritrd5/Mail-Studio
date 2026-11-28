@@ -1,4 +1,5 @@
 import React from 'react';
+import { ButtonLoader } from './Loading';
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'primary' | 'secondary' | 'outline' | 'ghost' | 'gold' | 'danger';
@@ -6,6 +7,7 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
   icon?: React.ReactNode;
   iconPosition?: 'left' | 'right';
   isLoading?: boolean;
+  loadingText?: string;
 }
 
 export const Button: React.FC<ButtonProps> = ({
@@ -15,6 +17,7 @@ export const Button: React.FC<ButtonProps> = ({
   icon,
   iconPosition = 'left',
   isLoading = false,
+  loadingText,
   className = '',
   disabled,
   type = 'button',
@@ -46,14 +49,14 @@ export const Button: React.FC<ButtonProps> = ({
       {...props}
     >
       {isLoading ? (
-        <svg className="animate-spin h-4 w-4 text-current shrink-0" fill="none" viewBox="0 0 24 24">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-        </svg>
+        <ButtonLoader
+          tone={variant === 'outline' || variant === 'ghost' ? 'brand' : 'current'}
+          label={loadingText || (typeof children === 'string' ? children : 'Processing')}
+        />
       ) : (
         icon && iconPosition === 'left' && <span className="shrink-0 flex items-center">{icon}</span>
       )}
-      <span>{children}</span>
+      <span>{isLoading && loadingText ? loadingText : children}</span>
       {!isLoading && icon && iconPosition === 'right' && <span className="shrink-0 flex items-center">{icon}</span>}
     </button>
   );

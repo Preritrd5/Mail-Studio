@@ -1,9 +1,11 @@
-import { fetchApiEnvelope } from './apiConfig';
+import { fetchApiEnvelope, getApiUrl, getAuthHeaders } from './apiConfig';
 import { ImportBatchRecord, ImportBatchRowRecord } from '../types';
+
+export type ImportUploadProgressCallback = (percent: number, phase: 'uploading' | 'processing') => void;
 
 export class ImportService {
   /**
-   * Upload spreadsheet file (CSV, XLSX, XLS) and create persistent import batch
+   * Upload spreadsheet file (CSV, XLSX, XLS) with real XHR upload progress tracking
    */
   public static async uploadFile(
     file: File,
@@ -12,6 +14,8 @@ export class ImportService {
       header_row?: number;
       email_column?: string;
       name_column?: string;
+      onProgress?: ImportUploadProgressCallback;
+      signal?: AbortSignal;
     }
   ): Promise<{ batch: ImportBatchRecord | null; success: boolean; error?: string; statusCode?: number; errorCode?: string }> {
     try {
@@ -22,17 +26,106 @@ export class ImportService {
       if (options?.email_column) formData.append('email_column', options.email_column);
       if (options?.name_column) formData.append('name_column', options.name_column);
 
-      const json = await fetchApiEnvelope<{ batch: ImportBatchRecord }>(
-        '/imports',
-        { method: 'POST', body: formData },
-        false
-      );
+      const authHeaders = await getAuthHeaders();
+      const url = getApiUrl('/imports');
+      const onProgress = options?.onProgress;
+
+      const json = await new Promise<any>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', url, true);
+        xhr.timeout = 60000;
+
+        Object.entries(authHeaders).forEach(([k, v]) => {
+          xhr.setRequestHeader(k, v);
+        });
+
+        const handleAbortSignal = () => {
+          xhr.abort();
+        };
+        if (options?.signal) {
+          if (options.signal.aborted) {
+            const abortErr: any = new Error('Upload cancelled');
+            abortErr.name = 'AbortError';
+            reject(abortErr);
+            return;
+          }
+          options.signal.addEventListener('abort', handleAbortSignal, { once: true });
+        }
+
+        xhr.upload.onprogress = (evt) => {
+          if (evt.lengthComputable && evt.total > 0) {
+            // Allocate 0-85% for network byte transfer and reserve 85-100% for server workbook parsing
+            const pct = Math.min(85, Math.max(5, Math.round((evt.loaded / evt.total) * 85)));
+            onProgress?.(pct, 'uploading');
+          }
+        };
+
+        xhr.upload.onload = () => {
+          onProgress?.(92, 'processing');
+        };
+
+        xhr.onload = () => {
+          options?.signal?.removeEventListener('abort', handleAbortSignal);
+          try {
+            const parsed = xhr.responseText ? JSON.parse(xhr.responseText) : null;
+            if (xhr.status >= 200 && xhr.status < 300 && parsed?.success) {
+              onProgress?.(100, 'processing');
+              resolve(parsed);
+            } else {
+              const err: any = new Error(parsed?.error?.message || `Upload failed (${xhr.status})`);
+              err.status = xhr.status || 500;
+              err.code = parsed?.error?.code || 'UPLOAD_FAILED';
+              reject(err);
+            }
+          } catch {
+            const err: any = new Error(`Unexpected response from upload endpoint (${xhr.status})`);
+            err.status = xhr.status || 502;
+            err.code = 'INVALID_SERVER_RESPONSE';
+            reject(err);
+          }
+        };
+
+        xhr.onerror = () => {
+          options?.signal?.removeEventListener('abort', handleAbortSignal);
+          const err: any = new Error('Network error during file upload. Verify connection and retry.');
+          err.status = 503;
+          err.code = 'NETWORK_UNAVAILABLE';
+          reject(err);
+        };
+
+        xhr.ontimeout = () => {
+          options?.signal?.removeEventListener('abort', handleAbortSignal);
+          const err: any = new Error('Spreadsheet upload and parsing timed out. Try a smaller file or retry.');
+          err.status = 408;
+          err.code = 'REQUEST_TIMEOUT';
+          reject(err);
+        };
+
+        xhr.onabort = () => {
+          options?.signal?.removeEventListener('abort', handleAbortSignal);
+          const abortErr: any = new Error('Upload cancelled');
+          abortErr.name = 'AbortError';
+          reject(abortErr);
+        };
+
+        onProgress?.(5, 'uploading');
+        xhr.send(formData);
+      });
 
       return {
         batch: json.data?.batch || null,
         success: true,
       };
     } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        return {
+          batch: null,
+          success: false,
+          error: 'Upload was cancelled.',
+          statusCode: 499,
+          errorCode: 'ABORTED',
+        };
+      }
       return {
         batch: null,
         success: false,

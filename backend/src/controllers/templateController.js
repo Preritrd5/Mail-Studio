@@ -1,8 +1,8 @@
 import * as templateRepo from '../repositories/templateRepository.js';
 import { validateAndSanitizeTemplate } from '../validators/templateValidator.js';
-import { PLACEHOLDER_REGISTRY } from '../services/placeholderRegistry.js';
+import { PLACEHOLDER_REGISTRY, inspectPlaceholders } from '../services/placeholderRegistry.js';
 import { renderTemplateHtml, renderTemplateText, getSamplePreviewContext, htmlToPlainTextFallback } from '../services/templateRenderer.js';
-import { inspectPlaceholders } from '../services/placeholderRegistry.js';
+import { config } from '../config/env.js';
 
 export async function getTemplates(req, res, next) {
   try {
@@ -187,21 +187,22 @@ export async function previewTemplate(req, res, next) {
           error: { code: 'TEMPLATE_NOT_FOUND', message: 'Requested template version not found.' },
         });
       }
-      subject = req.body?.subject || stored.subject;
-      htmlContent = req.body?.html_content || stored.html_content;
-      textContent = req.body?.text_content || stored.text_content;
+      subject = typeof req.body?.subject === 'string' ? req.body.subject : (stored.subject || '');
+      htmlContent = typeof req.body?.html_content === 'string' ? req.body.html_content : (stored.html_content || '');
+      textContent = typeof req.body?.text_content === 'string' ? req.body.text_content : (stored.text_content || '');
     }
 
     const sampleContext = getSamplePreviewContext();
     const effectiveContext = { ...sampleContext, ...userContext };
 
-    const renderedSubject = renderTemplateText(subject, effectiveContext);
-    const renderedHtml = renderTemplateHtml(htmlContent, effectiveContext);
+    const renderedSubject = renderTemplateText(subject, effectiveContext, { strict: false });
+    const renderedHtml = renderTemplateHtml(htmlContent, effectiveContext, { strict: false });
     const renderedText = textContent && textContent.trim()
-      ? renderTemplateText(textContent, effectiveContext)
+      ? renderTemplateText(textContent, effectiveContext, { strict: false })
       : htmlToPlainTextFallback(renderedHtml);
 
     const inspection = inspectPlaceholders(`${subject} ${htmlContent} ${textContent}`);
+    const unresolvedInspection = inspectPlaceholders(`${renderedSubject} ${renderedHtml} ${renderedText}`);
 
     return res.status(200).json({
       success: true,
@@ -213,8 +214,13 @@ export async function previewTemplate(req, res, next) {
         text_content: renderedText,
         rendered_text: renderedText,
         context: effectiveContext,
+        sender_identity: {
+          name: config.senderName,
+          email: config.gmailUser || null,
+        },
         unsupported_tokens: inspection.unsupported,
         unsupported_placeholders: inspection.unsupported,
+        unresolved_placeholders: unresolvedInspection.found,
       },
     });
   } catch (err) {

@@ -26,6 +26,7 @@ import {
 import { Card, CardHeader } from '../components/common/Card';
 import { Badge } from '../components/common/Badge';
 import { Button } from '../components/common/Button';
+import { CardSkeleton, TableSkeleton, SyncStatusPill } from '../components/common/Loading';
 import { StateNotice, classifyApiError, DataStateKind } from '../components/common/StateNotice';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
@@ -48,12 +49,15 @@ export const DashboardView: React.FC = () => {
   const [liveCampaigns, setLiveCampaigns] = useState<CampaignReportItem[]>([]);
   const [systemStatus, setSystemStatus] = useState<SystemStatusResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
+  const [refreshing, setRefreshing] = useState<boolean>(false);
   const [loadIssue, setLoadIssue] = useState<{
     kind: Extract<DataStateKind, 'auth_required' | 'error'>;
     message: string;
     statusCode?: number;
     errorCode?: string;
   } | null>(null);
+
+  const hasLoadedOnceRef = React.useRef<boolean>(false);
 
   const dateOptions: { id: DateRange; label: string }[] = [
     { id: 'today', label: 'Today' },
@@ -67,6 +71,7 @@ export const DashboardView: React.FC = () => {
     if (isAuthLoading) return;
 
     if (!user) {
+      hasLoadedOnceRef.current = false;
       setLiveOverview(null);
       setLiveTimeline([]);
       setLiveActivities([]);
@@ -79,10 +84,15 @@ export const DashboardView: React.FC = () => {
         errorCode: 'AUTH_REQUIRED',
       });
       setLoading(false);
+      setRefreshing(false);
       return;
     }
 
-    setLoading(true);
+    if (hasLoadedOnceRef.current) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     setLoadIssue(null);
 
     try {
@@ -139,9 +149,12 @@ export const DashboardView: React.FC = () => {
           statusCode: classified.statusCode,
           errorCode: classified.errorCode,
         });
+      } else {
+        hasLoadedOnceRef.current = true;
       }
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, [dateRange, isAuthLoading, user?.id]);
 
@@ -244,6 +257,9 @@ export const DashboardView: React.FC = () => {
           <span className="text-[11px] font-normal text-[#64748B]">
             (Reconciled live from queue and dispatch ledger)
           </span>
+          {(loading || refreshing) && user && (
+            <SyncStatusPill label={loading ? 'Loading metrics...' : 'Updating metrics...'} />
+          )}
         </div>
 
         <div className="grid grid-cols-2 sm:flex sm:items-center gap-1 bg-[#F4F6FA] p-1 rounded-[10px] border border-[#CBD5E1] shrink-0">
@@ -275,7 +291,14 @@ export const DashboardView: React.FC = () => {
       )}
 
       {/* Four Core Metric Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 items-stretch">
+      {loading && !liveOverview && !loadIssue ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 items-stretch">
+          {[1, 2, 3, 4].map((idx) => (
+            <CardSkeleton key={`dash-kpi-sk-${idx}`} variant="kpi" />
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 items-stretch">
         {/* Total Emails Sent */}
         <Card hoverable className="relative overflow-hidden border-l-4 border-l-[#1456AD] h-full flex flex-col justify-between">
           <div className="flex items-start justify-between gap-2">
@@ -363,9 +386,20 @@ export const DashboardView: React.FC = () => {
           </div>
         </Card>
       </div>
+      )}
 
       {/* Sending Performance Chart Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
+      {loading && !liveOverview && !loadIssue ? (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
+          <div className="lg:col-span-2 min-w-0">
+            <CardSkeleton variant="chart" />
+          </div>
+          <div className="min-w-0">
+            <CardSkeleton variant="list" />
+          </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
         {/* Visual Bar Chart (2 cols) */}
         <Card className="lg:col-span-2 min-w-0 h-full flex flex-col">
           <CardHeader
@@ -521,9 +555,23 @@ export const DashboardView: React.FC = () => {
           </Card>
         </div>
       </div>
+      )}
 
       {/* Recent Campaigns Table & Activity Feed */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
+      {loading && !liveOverview && !loadIssue ? (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
+          <div className="lg:col-span-2 min-w-0">
+            <Card>
+              <CardHeader title="Recent Campaigns" subtitle="Loading campaign ledger..." />
+              <TableSkeleton rows={4} columns={5} />
+            </Card>
+          </div>
+          <div className="min-w-0">
+            <CardSkeleton variant="list" />
+          </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
         {/* Recent Campaigns (2 cols) */}
         <Card className="lg:col-span-2 min-w-0 h-full flex flex-col">
           <CardHeader
@@ -684,6 +732,7 @@ export const DashboardView: React.FC = () => {
           </div>
         </Card>
       </div>
+      )}
     </div>
   );
 };

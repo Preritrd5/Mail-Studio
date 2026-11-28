@@ -23,6 +23,7 @@ import { Badge } from '../components/common/Badge';
 import { Input } from '../components/common/Input';
 import { Select } from '../components/common/Select';
 import { Modal } from '../components/common/Modal';
+import { PageLoader, CardSkeleton, TableSkeleton, SyncStatusPill } from '../components/common/Loading';
 import { StateNotice, classifyApiError, DataStateKind } from '../components/common/StateNotice';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
@@ -35,6 +36,7 @@ export const EmailActivityView: React.FC = () => {
 
   // State
   const [loading, setLoading] = useState<boolean>(true);
+  const [refreshing, setRefreshing] = useState<boolean>(false);
   const [logs, setLogs] = useState<ActivityItem[]>([]);
   const [pagination, setPagination] = useState({ total: 0, page: 1, limit: 15, totalPages: 1 });
   const [loadIssue, setLoadIssue] = useState<{
@@ -53,12 +55,25 @@ export const EmailActivityView: React.FC = () => {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
   // Detailed Modal
+  const [detailTargetId, setDetailTargetId] = useState<string | null>(null);
   const [selectedDetail, setSelectedDetail] = useState<ActivityDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState<boolean>(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
-  // Retry Confirmation Modal
+  // Retry & Export Actions
   const [retryTarget, setRetryTarget] = useState<ActivityItem | null>(null);
   const [retrying, setRetrying] = useState<boolean>(false);
+  const [exportingFormat, setExportingFormat] = useState<'csv' | 'xlsx' | null>(null);
+
+  const listAbortRef = React.useRef<AbortController | null>(null);
+  const detailAbortRef = React.useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      listAbortRef.current?.abort();
+      detailAbortRef.current?.abort();
+    };
+  }, []);
 
   // Fetch Activity Data
   const fetchActivity = useCallback(async (isSilent = false) => {
@@ -74,26 +89,38 @@ export const EmailActivityView: React.FC = () => {
         errorCode: 'AUTH_REQUIRED',
       });
       setLoading(false);
+      setRefreshing(false);
       return;
     }
 
-    if (!isSilent) setLoading(true);
-    setLoadIssue(null);
-    try {
-      const res = await activityService.listActivity({
-        search: searchQuery,
-        status: statusFilter,
-        campaign_type: campaignTypeFilter,
-        date_range: dateFilter,
-        sort_by: sortBy,
-        sort_order: sortOrder,
-        page: pagination.page,
-        limit: pagination.limit,
-      });
+    listAbortRef.current?.abort();
+    const controller = new AbortController();
+    listAbortRef.current = controller;
 
+    if (isSilent) setRefreshing(true);
+    else setLoading(true);
+    setLoadIssue(null);
+
+    try {
+      const res = await activityService.listActivity(
+        {
+          search: searchQuery,
+          status: statusFilter,
+          campaign_type: campaignTypeFilter,
+          date_range: dateFilter,
+          sort_by: sortBy,
+          sort_order: sortOrder,
+          page: pagination.page,
+          limit: pagination.limit,
+        },
+        controller.signal
+      );
+
+      if (controller.signal.aborted) return;
       setLogs(res.items);
       setPagination(res.pagination);
     } catch (err: any) {
+      if (err?.name === 'AbortError' || controller.signal.aborted) return;
       setLogs([]);
       const classified = classifyApiError(err, 'Unable to retrieve email activity records.');
       setLoadIssue({
@@ -103,29 +130,49 @@ export const EmailActivityView: React.FC = () => {
         errorCode: classified.errorCode,
       });
     } finally {
-      setLoading(false);
+      if (listAbortRef.current === controller) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }, [isAuthLoading, user?.id, searchQuery, statusFilter, campaignTypeFilter, dateFilter, sortBy, sortOrder, pagination.page, pagination.limit]);
 
-  // Initial & Dependency Load
+  // Debounced fetch on search changes so typing does not spam overlapping network requests
   useEffect(() => {
-    fetchActivity();
-  }, [fetchActivity]);
+    const delay = searchQuery.trim() ? 220 : 0;
+    const timer = window.setTimeout(() => {
+      void fetchActivity(false);
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [fetchActivity, searchQuery]);
 
-  // View Record Detail
+  // View Record Detail (opens Modal immediately with local loader & abort cleanup)
   const handleViewDetail = async (id: string) => {
+    detailAbortRef.current?.abort();
+    const controller = new AbortController();
+    detailAbortRef.current = controller;
+
+    setDetailTargetId(id);
+    setSelectedDetail(null);
+    setDetailError(null);
     setDetailLoading(true);
+
     try {
-      const detail = await activityService.getActivityDetail(id);
+      const detail = await activityService.getActivityDetail(id, controller.signal);
+      if (controller.signal.aborted) return;
       setSelectedDetail(detail);
     } catch (err: any) {
+      if (err?.name === 'AbortError' || controller.signal.aborted) return;
+      setDetailError(err?.message || 'Failed to load transmission history.');
       addToast({
         type: 'error',
         title: 'Detail Load Error',
-        message: err.message || 'Failed to load transmission history.',
+        message: err?.message || 'Failed to load transmission history.',
       });
     } finally {
-      setDetailLoading(false);
+      if (detailAbortRef.current === controller) {
+        setDetailLoading(false);
+      }
     }
   };
 
@@ -158,6 +205,8 @@ export const EmailActivityView: React.FC = () => {
 
   // CSV Export
   const handleExportCSV = async () => {
+    if (exportingFormat !== null) return;
+    setExportingFormat('csv');
     try {
       await reportsService.downloadCsv('activity', {
         search: searchQuery,
@@ -172,11 +221,15 @@ export const EmailActivityView: React.FC = () => {
       });
     } catch (err: any) {
       addToast({ type: 'error', title: 'Export Failed', message: err.message });
+    } finally {
+      setExportingFormat(null);
     }
   };
 
   // Excel (.xlsx) Export
   const handleExportExcel = async () => {
+    if (exportingFormat !== null) return;
+    setExportingFormat('xlsx');
     try {
       await reportsService.downloadExcel();
       addToast({
@@ -186,6 +239,8 @@ export const EmailActivityView: React.FC = () => {
       });
     } catch (err: any) {
       addToast({ type: 'error', title: 'Excel Export Failed', message: err.message });
+    } finally {
+      setExportingFormat(null);
     }
   };
 
@@ -245,10 +300,11 @@ export const EmailActivityView: React.FC = () => {
             </div>
 
             <div className="flex flex-wrap items-center gap-2 shrink-0">
+              {(loading || refreshing) && <SyncStatusPill label={loading ? 'Loading ledger...' : 'Refreshing ledger...'} />}
               <Button
                 variant="outline"
                 size="md"
-                icon={<RefreshCw size={14} className={loading ? 'animate-spin' : ''} />}
+                icon={<RefreshCw size={14} />}
                 onClick={resetFilters}
               >
                 Reset
@@ -256,6 +312,9 @@ export const EmailActivityView: React.FC = () => {
               <Button
                 variant="outline"
                 size="md"
+                isLoading={exportingFormat === 'csv'}
+                loadingText="Exporting CSV..."
+                disabled={exportingFormat !== null}
                 icon={<Download size={14} />}
                 onClick={handleExportCSV}
                 title="Export all matching records to CSV with formula injection protection"
@@ -265,6 +324,9 @@ export const EmailActivityView: React.FC = () => {
               <Button
                 variant="primary"
                 size="md"
+                isLoading={exportingFormat === 'xlsx'}
+                loadingText="Generating..."
+                disabled={exportingFormat !== null}
                 icon={<FileSpreadsheet size={14} />}
                 onClick={handleExportExcel}
                 title="Download genuine multi-sheet Excel report (.xlsx)"
@@ -354,12 +416,7 @@ export const EmailActivityView: React.FC = () => {
             </thead>
             <tbody className="divide-y divide-[#CBD5E1]">
               {loading ? (
-                <tr>
-                  <td colSpan={7} className="py-12 text-center text-[#64748B]">
-                    <RefreshCw size={24} className="animate-spin mx-auto mb-2 text-[#1456AD]" />
-                    <p className="font-medium text-[#172E58]">Loading activity records from PostgreSQL...</p>
-                  </td>
-                </tr>
+                <TableSkeleton rows={8} columns={7} asTableRows />
               ) : logs.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="py-12 text-center text-[#64748B]">
@@ -440,6 +497,8 @@ export const EmailActivityView: React.FC = () => {
                         <Button
                           variant="outline"
                           size="sm"
+                          isLoading={detailLoading && detailTargetId === log.id}
+                          loadingText="Loading..."
                           icon={<Eye size={12} />}
                           onClick={() => handleViewDetail(log.id)}
                           title="View Historical Attempt Records"
@@ -502,16 +561,30 @@ export const EmailActivityView: React.FC = () => {
       </Card>
 
       {/* 4. Detailed Activity & Attempt History Modal */}
-      {selectedDetail && (
+      {detailTargetId && (
         <Modal
           isOpen={true}
-          onClose={() => setSelectedDetail(null)}
-          title={`Transmission Audit: ${selectedDetail.recipient_name}`}
-          subtitle={`Recipient ID: ${selectedDetail.id} • ${selectedDetail.recipient_email}`}
+          onClose={() => {
+            detailAbortRef.current?.abort();
+            setDetailTargetId(null);
+            setSelectedDetail(null);
+            setDetailError(null);
+            setDetailLoading(false);
+          }}
+          title={
+            selectedDetail
+              ? `Transmission Audit: ${selectedDetail.recipient_name}`
+              : 'Transmission Audit Details'
+          }
+          subtitle={
+            selectedDetail
+              ? `Recipient ID: ${selectedDetail.id} • ${selectedDetail.recipient_email}`
+              : `Recipient ID: ${detailTargetId}`
+          }
           maxWidth="lg"
           footer={
             <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-2 w-full">
-              {selectedDetail.status === 'failed' && (
+              {selectedDetail?.status === 'failed' && (
                 <Button 
                   variant="gold" 
                   size="md" 
@@ -523,12 +596,41 @@ export const EmailActivityView: React.FC = () => {
                   Retry This Recipient
                 </Button>
               )}
-              <Button variant="primary" size="md" onClick={() => setSelectedDetail(null)} className="sm:ml-auto">
+              <Button
+                variant="primary"
+                size="md"
+                onClick={() => {
+                  detailAbortRef.current?.abort();
+                  setDetailTargetId(null);
+                  setSelectedDetail(null);
+                  setDetailError(null);
+                  setDetailLoading(false);
+                }}
+                className="sm:ml-auto"
+              >
                 Close Record
               </Button>
             </div>
           }
         >
+          {detailLoading ? (
+            <div className="space-y-4">
+              <PageLoader
+                compact
+                title="Loading transmission & SMTP attempt history..."
+                subtitle="Retrieving immutable delivery logs from PostgreSQL"
+              />
+              <CardSkeleton variant="list" />
+            </div>
+          ) : detailError ? (
+            <StateNotice
+              compact
+              kind="error"
+              title="Unable to Load Audit Details"
+              message={detailError}
+              onRetry={() => handleViewDetail(detailTargetId)}
+            />
+          ) : selectedDetail ? (
           <div className="space-y-4 text-xs text-[#1E293B]">
             {/* Summary Box */}
             <div className="p-3 sm:p-4 bg-[#F8FAFC] rounded-lg border border-[#CBD5E1] grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -644,6 +746,7 @@ export const EmailActivityView: React.FC = () => {
               </div>
             </div>
           </div>
+          ) : null}
         </Modal>
       )}
 
@@ -651,23 +754,26 @@ export const EmailActivityView: React.FC = () => {
       {retryTarget && (
         <Modal
           isOpen={true}
-          onClose={() => setRetryTarget(null)}
+          onClose={() => !retrying && setRetryTarget(null)}
           title="Confirm Delivery Retry"
           subtitle={`Target: ${retryTarget.recipient_name} (${retryTarget.recipient_email})`}
           maxWidth="md"
           footer={
             <>
-              <Button variant="outline" size="sm" onClick={() => setRetryTarget(null)}>
+              <Button variant="outline" size="sm" disabled={retrying} onClick={() => setRetryTarget(null)}>
                 Cancel
               </Button>
               <Button
                 variant="gold"
                 size="sm"
+                isLoading={retrying}
+                loadingText="Retrying..."
+                icon={<RotateCcw size={13} />}
                 onClick={handleConfirmRetry}
                 disabled={retrying}
                 className="font-bold"
               >
-                {retrying ? 'Initiating Retry...' : 'Confirm & Retry'}
+                Confirm &amp; Retry
               </Button>
             </>
           }
