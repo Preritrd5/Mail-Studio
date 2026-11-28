@@ -268,7 +268,7 @@ export const DashboardView: React.FC = () => {
               type="button"
               key={opt.id}
               onClick={() => setDateRange(opt.id)}
-              className={`px-3 min-h-8 py-1.5 rounded-[7px] text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+              className={`px-3 min-h-8 py-1.5 rounded-[7px] text-xs font-semibold whitespace-nowrap snpsu-control-pill ${
                 dateRange === opt.id
                   ? 'bg-white text-[#1456AD] shadow-xs'
                   : 'text-[#64748B] hover:text-[#172E58]'
@@ -300,7 +300,8 @@ export const DashboardView: React.FC = () => {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 items-stretch">
         {/* Total Emails Sent */}
-        <Card hoverable className="relative overflow-hidden border-l-4 border-l-[#1456AD] h-full flex flex-col justify-between">
+        <Card hoverable className="relative overflow-hidden h-full flex flex-col justify-between pl-6">
+          <span className="absolute inset-y-0 left-0 w-1 bg-[#1456AD]" aria-hidden="true" />
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <p className="text-[11px] font-semibold text-[#64748B] uppercase tracking-wider">Accepted by SMTP</p>
@@ -314,12 +315,13 @@ export const DashboardView: React.FC = () => {
           </div>
           <div className="mt-3 flex items-center text-xs text-emerald-600 font-medium gap-1.5 whitespace-nowrap">
             <TrendingUp size={14} className="shrink-0" />
-            <span className="truncate">SMTP Handshake Confirmed</span>
+            <span className="truncate">Confirmed deliveries</span>
           </div>
         </Card>
 
         {/* Deliverability / Acceptance Rate */}
-        <Card hoverable className="relative overflow-hidden border-l-4 border-l-emerald-500 h-full flex flex-col justify-between">
+        <Card hoverable className="relative overflow-hidden h-full flex flex-col justify-between pl-6">
+          <span className="absolute inset-y-0 left-0 w-1 bg-emerald-500" aria-hidden="true" />
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <p className="text-[11px] font-semibold text-[#64748B] uppercase tracking-wider">Acceptance Rate</p>
@@ -337,7 +339,8 @@ export const DashboardView: React.FC = () => {
         </Card>
 
         {/* Pending in Queue */}
-        <Card hoverable className="relative overflow-hidden border-l-4 border-l-[#C69A4C] h-full flex flex-col justify-between">
+        <Card hoverable className="relative overflow-hidden h-full flex flex-col justify-between pl-6">
+          <span className="absolute inset-y-0 left-0 w-1 bg-[#C69A4C]" aria-hidden="true" />
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <p className="text-[11px] font-semibold text-[#64748B] uppercase tracking-wider">Pending in Queue</p>
@@ -350,19 +353,21 @@ export const DashboardView: React.FC = () => {
             </div>
           </div>
           <div className="mt-3 flex items-center justify-between gap-2 text-xs">
-            <span className="text-[#64748B] truncate">5.0s sequential interval</span>
+            <span className="text-[#64748B] truncate">5.0s auto interval</span>
             <button
               type="button"
               onClick={() => navigateTo('sending-queue')}
-              className="text-[#1456AD] font-semibold hover:underline flex items-center shrink-0 whitespace-nowrap cursor-pointer"
+              className="group text-[#1456AD] font-semibold hover:underline flex items-center shrink-0 whitespace-nowrap snpsu-focus-ring rounded px-1 py-0.5 cursor-pointer"
             >
-              Inspect <ChevronRight size={12} />
+              <span>Inspect</span>
+              <ChevronRight size={12} className="transition-transform duration-150 group-hover:translate-x-0.5" />
             </button>
           </div>
         </Card>
 
         {/* Failed / Bounced */}
-        <Card hoverable className="relative overflow-hidden border-l-4 border-l-rose-500 h-full flex flex-col justify-between">
+        <Card hoverable className="relative overflow-hidden h-full flex flex-col justify-between pl-6">
+          <span className="absolute inset-y-0 left-0 w-1 bg-rose-500" aria-hidden="true" />
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <p className="text-[11px] font-semibold text-[#64748B] uppercase tracking-wider">Failed / Rejected</p>
@@ -379,9 +384,10 @@ export const DashboardView: React.FC = () => {
             <button
               type="button"
               onClick={() => navigateTo('email-activity')}
-              className="text-rose-600 font-semibold hover:underline flex items-center shrink-0 whitespace-nowrap cursor-pointer"
+              className="group text-rose-600 font-semibold hover:underline flex items-center shrink-0 whitespace-nowrap snpsu-focus-ring rounded px-1 py-0.5 cursor-pointer"
             >
-              View logs <ChevronRight size={12} />
+              <span>View logs</span>
+              <ChevronRight size={12} className="transition-transform duration-150 group-hover:translate-x-0.5" />
             </button>
           </div>
         </Card>
@@ -435,8 +441,8 @@ export const DashboardView: React.FC = () => {
                     }}
                     itemStyle={{ color: '#fff' }}
                   />
-                  <Bar dataKey="sent" fill="#1456AD" radius={[4, 4, 0, 0]} name="Accepted (Sent)" />
-                  <Bar dataKey="failed" fill="#E11D48" radius={[4, 4, 0, 0]} name="Failed Attempts" />
+                  <Bar dataKey="sent" fill="#1456AD" radius={[4, 4, 0, 0]} name="Accepted (Sent)" animationDuration={450} />
+                  <Bar dataKey="failed" fill="#E11D48" radius={[4, 4, 0, 0]} name="Failed Attempts" animationDuration={450} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
@@ -462,9 +468,10 @@ export const DashboardView: React.FC = () => {
             <button
               type="button"
               onClick={() => navigateTo('reports')}
-              className="text-[#1456AD] font-semibold hover:underline flex items-center gap-1 whitespace-nowrap cursor-pointer"
+              className="group text-[#1456AD] font-semibold hover:underline flex items-center gap-1 whitespace-nowrap snpsu-focus-ring rounded px-1 py-0.5 cursor-pointer"
             >
-              Reports & Analytics <ArrowUpRight size={14} />
+              <span>Reports &amp; Analytics</span>
+              <ArrowUpRight size={14} className="transition-transform duration-150 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
             </button>
           </div>
         </Card>
@@ -521,35 +528,35 @@ export const DashboardView: React.FC = () => {
               <button
                 type="button"
                 onClick={() => navigateTo('compose')}
-                className="w-full flex items-center justify-between gap-2 p-2.5 rounded-lg border border-[#CBD5E1] hover:border-[#1456AD] hover:bg-[#EBF3FC]/50 text-left transition-colors text-xs font-medium text-[#1E293B] group cursor-pointer"
+                className="w-full flex items-center justify-between gap-2 p-2.5 rounded-lg border border-[#CBD5E1] hover:border-[#1456AD] hover:bg-[#EBF3FC]/55 hover:-translate-y-[1px] hover:shadow-xs active:translate-y-0 active:scale-[0.99] text-left transition-all duration-150 ease-out text-xs font-medium text-[#1E293B] group snpsu-focus-ring cursor-pointer"
               >
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="p-1.5 rounded-md bg-[#1456AD]/10 text-[#1456AD] group-hover:bg-[#1456AD] group-hover:text-white transition-colors shrink-0">
+                  <div className="p-1.5 rounded-md bg-[#1456AD]/10 text-[#1456AD] group-hover:bg-[#1456AD] group-hover:text-white transition-colors duration-150 shrink-0">
                     <Send size={14} />
                   </div>
                   <div className="min-w-0">
                     <div className="font-semibold text-[#172E58] truncate">Quick Single Dispatch</div>
-                    <div className="text-[11px] text-[#64748B] truncate">Direct correspondence with template support</div>
+                    <div className="text-[11px] text-[#64748B] truncate">Direct template &amp; custom sends</div>
                   </div>
                 </div>
-                <ChevronRight size={14} className="text-[#64748B] group-hover:text-[#1456AD] shrink-0" />
+                <ChevronRight size={14} className="text-[#64748B] group-hover:text-[#1456AD] group-hover:translate-x-0.5 transition-all duration-150 shrink-0" />
               </button>
 
               <button
                 type="button"
                 onClick={() => navigateTo('bulk-import')}
-                className="w-full flex items-center justify-between gap-2 p-2.5 rounded-lg border border-[#CBD5E1] hover:border-[#C69A4C] hover:bg-[#FDF8EE]/50 text-left transition-colors text-xs font-medium text-[#1E293B] group cursor-pointer"
+                className="w-full flex items-center justify-between gap-2 p-2.5 rounded-lg border border-[#CBD5E1] hover:border-[#C69A4C] hover:bg-[#FDF8EE]/55 hover:-translate-y-[1px] hover:shadow-xs active:translate-y-0 active:scale-[0.99] text-left transition-all duration-150 ease-out text-xs font-medium text-[#1E293B] group snpsu-focus-ring cursor-pointer"
               >
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="p-1.5 rounded-md bg-[#C69A4C]/15 text-[#C69A4C] group-hover:bg-[#C69A4C] group-hover:text-white transition-colors shrink-0">
+                  <div className="p-1.5 rounded-md bg-[#C69A4C]/15 text-[#C69A4C] group-hover:bg-[#C69A4C] group-hover:text-white transition-colors duration-150 shrink-0">
                     <Users size={14} />
                   </div>
                   <div className="min-w-0">
                     <div className="font-semibold text-[#172E58] truncate">Launch Bulk Campaign</div>
-                    <div className="text-[11px] text-[#64748B] truncate">CSV/XLSX parser & sequential queue</div>
+                    <div className="text-[11px] text-[#64748B] truncate">CSV/XLSX roster &amp; 5s queue</div>
                   </div>
                 </div>
-                <ChevronRight size={14} className="text-[#64748B] group-hover:text-[#C69A4C] shrink-0" />
+                <ChevronRight size={14} className="text-[#64748B] group-hover:text-[#C69A4C] group-hover:translate-x-0.5 transition-all duration-150 shrink-0" />
               </button>
             </div>
           </Card>

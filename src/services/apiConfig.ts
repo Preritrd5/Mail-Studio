@@ -175,9 +175,14 @@ export async function fetchApiEnvelope<T = any>(
           'REQUEST_TIMEOUT'
         );
       }
+      const isLocalOrigin =
+        typeof window !== 'undefined' &&
+        (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
       throw new ApiError(
-        networkErr?.message || 'Unable to reach SNPSUNEXUS backend service.',
-        503,
+        isLocalOrigin
+          ? 'Cannot connect to the local backend server at http://localhost:4000. Ensure "npm run server" is running and click Retry.'
+          : 'Unable to reach SNPSUNEXUS backend service. Please check your connection and retry.',
+        0,
         'NETWORK_UNAVAILABLE'
       );
     } finally {
@@ -245,9 +250,14 @@ export async function fetchApiBlob(
         'REQUEST_TIMEOUT'
       );
     }
+    const isLocalOrigin =
+      typeof window !== 'undefined' &&
+      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
     throw new ApiError(
-      networkErr?.message || 'Unable to reach SNPSUNEXUS backend service.',
-      503,
+      isLocalOrigin
+        ? 'Cannot connect to the local backend server at http://localhost:4000. Ensure "npm run server" is running and click Retry.'
+        : 'Unable to reach SNPSUNEXUS backend service. Please check your connection and retry.',
+      0,
       'NETWORK_UNAVAILABLE'
     );
   } finally {

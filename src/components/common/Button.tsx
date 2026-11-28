@@ -24,7 +24,7 @@ export const Button: React.FC<ButtonProps> = ({
   ...props
 }) => {
   const baseStyles =
-    'inline-flex items-center justify-center font-medium transition-all duration-150 rounded-[10px] focus:outline-none focus:ring-2 focus:ring-offset-1 select-none whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shrink-0';
+    'group inline-flex items-center justify-center font-medium transition-all duration-150 ease-out rounded-[10px] focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 select-none whitespace-nowrap enabled:hover:-translate-y-[1px] enabled:active:translate-y-0 enabled:active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none motion-reduce:transition-none motion-reduce:transform-none cursor-pointer shrink-0';
 
   const sizeStyles = {
     sm: 'text-xs px-3 py-1.5 gap-1.5 min-h-8',
@@ -33,12 +33,18 @@ export const Button: React.FC<ButtonProps> = ({
   };
 
   const variantStyles = {
-    primary: 'bg-[#1456AD] hover:bg-[#0E448D] text-white focus:ring-[#1456AD]/40 shadow-sm active:translate-y-[0.5px]',
-    secondary: 'bg-[#172E58] hover:bg-[#0F1F3D] text-white focus:ring-[#172E58]/40 shadow-sm',
-    outline: 'border border-[#CBD5E1] bg-white text-[#1E293B] hover:bg-[#F4F6FA] hover:border-[#94A3B8] focus:ring-[#1456AD]/20',
-    ghost: 'bg-transparent text-[#64748B] hover:text-[#172E58] hover:bg-[#F4F6FA] focus:ring-slate-300',
-    gold: 'bg-[#C69A4C] hover:bg-[#B0853B] text-white focus:ring-[#C69A4C]/40 shadow-sm',
-    danger: 'bg-rose-600 hover:bg-rose-700 text-white focus:ring-rose-500/40',
+    primary:
+      'bg-[#1456AD] enabled:hover:bg-[#0E448D] text-white focus-visible:ring-[#1456AD]/45 shadow-sm enabled:hover:shadow-[0_4px_12px_rgba(20,86,173,0.28)] enabled:active:shadow-xs',
+    secondary:
+      'bg-[#172E58] enabled:hover:bg-[#0F1F3D] text-white focus-visible:ring-[#172E58]/45 shadow-sm enabled:hover:shadow-[0_4px_12px_rgba(23,46,88,0.28)] enabled:active:shadow-xs',
+    outline:
+      'border border-[#CBD5E1] bg-white text-[#1E293B] enabled:hover:bg-[#F4F6FA] enabled:hover:border-[#94A3B8] enabled:hover:shadow-xs focus-visible:ring-[#1456AD]/35 enabled:active:shadow-none',
+    ghost:
+      'bg-transparent text-[#64748B] enabled:hover:text-[#172E58] enabled:hover:bg-[#F4F6FA] focus-visible:ring-[#1456AD]/30',
+    gold:
+      'bg-[#C69A4C] enabled:hover:bg-[#B0853B] text-white focus-visible:ring-[#C69A4C]/45 shadow-sm enabled:hover:shadow-[0_4px_12px_rgba(198,154,76,0.3)] enabled:active:shadow-xs',
+    danger:
+      'bg-rose-600 enabled:hover:bg-rose-700 text-white focus-visible:ring-rose-500/45 shadow-sm enabled:hover:shadow-[0_4px_12px_rgba(225,29,72,0.25)] enabled:active:shadow-xs',
   };
 
   return (
@@ -54,10 +60,18 @@ export const Button: React.FC<ButtonProps> = ({
           label={loadingText || (typeof children === 'string' ? children : 'Processing')}
         />
       ) : (
-        icon && iconPosition === 'left' && <span className="shrink-0 flex items-center">{icon}</span>
+        icon && (
+          <span className="shrink-0 flex items-center transition-transform duration-150 ease-out group-enabled:group-hover:scale-105 motion-reduce:transform-none">
+            {icon}
+          </span>
+        )
       )}
       <span>{isLoading && loadingText ? loadingText : children}</span>
-      {!isLoading && icon && iconPosition === 'right' && <span className="shrink-0 flex items-center">{icon}</span>}
+      {!isLoading && icon && iconPosition === 'right' && (
+        <span className="shrink-0 flex items-center transition-transform duration-150 ease-out group-enabled:group-hover:translate-x-0.5 motion-reduce:transform-none">
+          {icon}
+        </span>
+      )}
     </button>
   );
 };

@@ -421,7 +421,7 @@ export const EmailTemplatesView: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setStatusFilter('active')}
-                className={`flex items-center gap-2 px-3.5 min-h-8 py-1.5 rounded-[8px] text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                className={`flex items-center gap-2 px-3.5 min-h-8 py-1.5 rounded-[8px] text-xs font-bold snpsu-control-pill whitespace-nowrap ${
                   statusFilter === 'active'
                     ? 'bg-[#172E58] text-white shadow-xs'
                     : 'bg-[#F4F6FA] text-[#64748B] hover:text-[#172E58] hover:bg-slate-200'
@@ -438,7 +438,7 @@ export const EmailTemplatesView: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setStatusFilter('archived')}
-                className={`flex items-center gap-2 px-3.5 min-h-8 py-1.5 rounded-[8px] text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                className={`flex items-center gap-2 px-3.5 min-h-8 py-1.5 rounded-[8px] text-xs font-bold snpsu-control-pill whitespace-nowrap ${
                   statusFilter === 'archived'
                     ? 'bg-[#172E58] text-white shadow-xs'
                     : 'bg-[#F4F6FA] text-[#64748B] hover:text-[#172E58] hover:bg-slate-200'
@@ -502,7 +502,7 @@ export const EmailTemplatesView: React.FC = () => {
                   type="button"
                   key={cat}
                   onClick={() => setSelectedCategory(cat)}
-                  className={`px-2.5 py-1.5 min-h-7 rounded-[6px] text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                  className={`px-2.5 py-1.5 min-h-7 rounded-[6px] text-xs font-semibold whitespace-nowrap snpsu-control-pill ${
                     selectedCategory === cat
                       ? 'bg-[#1456AD] text-white shadow-xs'
                       : 'bg-[#F4F6FA] text-[#64748B] hover:text-[#172E58] hover:bg-slate-200'
@@ -666,17 +666,20 @@ export const EmailTemplatesView: React.FC = () => {
                           text_content: tpl.text_content || '',
                         }).finally(() => setPreviewSyncing(false));
                       }}
-                      className="p-1.5 rounded-md text-[#64748B] hover:text-[#1456AD] hover:bg-[#EBF3FC] transition-colors cursor-pointer"
+                      className="p-1.5 snpsu-icon-btn text-[#64748B] hover:text-[#1456AD] hover:bg-[#EBF3FC]"
                       title="Preview Template (Desktop & Mobile Simulation)"
+                      aria-label={`Preview ${tpl.name}`}
                     >
                       <Eye size={15} />
                     </button>
 
                     {/* Edit Button */}
                     <button
+                      type="button"
                       onClick={() => openEditModal(tpl)}
-                      className="p-1.5 rounded-md text-[#64748B] hover:text-[#172E58] hover:bg-slate-100 transition-colors cursor-pointer"
+                      className="p-1.5 snpsu-icon-btn text-[#64748B] hover:text-[#172E58] hover:bg-slate-100"
                       title="Edit Template (Visual & HTML Mode)"
+                      aria-label={`Edit ${tpl.name}`}
                     >
                       <Edit3 size={15} />
                     </button>
@@ -694,8 +697,9 @@ export const EmailTemplatesView: React.FC = () => {
                           setPendingCardAction(null);
                         }
                       }}
-                      className="p-1.5 rounded-md text-[#64748B] hover:text-[#C69A4C] hover:bg-[#FDF8EE] transition-colors cursor-pointer disabled:opacity-50"
+                      className="p-1.5 snpsu-icon-btn text-[#64748B] hover:text-[#C69A4C] hover:bg-[#FDF8EE]"
                       title="Duplicate Template"
+                      aria-label={`Duplicate ${tpl.name}`}
                     >
                       {pendingCardAction?.id === tpl.id && pendingCardAction.type === 'duplicate' ? (
                         <LoadingSpinner size="sm" tone="gold" label="Duplicating template" />
@@ -718,8 +722,9 @@ export const EmailTemplatesView: React.FC = () => {
                             setPendingCardAction(null);
                           }
                         }}
-                        className="p-1.5 rounded-md text-[#64748B] hover:text-emerald-700 hover:bg-emerald-50 transition-colors cursor-pointer disabled:opacity-50"
+                        className="p-1.5 snpsu-icon-btn text-[#64748B] hover:text-emerald-700 hover:bg-emerald-50"
                         title="Restore Template to Active Status"
+                        aria-label={`Restore ${tpl.name}`}
                       >
                         {pendingCardAction?.id === tpl.id && pendingCardAction.type === 'restore' ? (
                           <LoadingSpinner size="sm" label="Restoring template" />
@@ -729,9 +734,11 @@ export const EmailTemplatesView: React.FC = () => {
                       </button>
                     ) : (
                       <button
+                        type="button"
                         onClick={() => setArchiveTargetId(tpl.id)}
-                        className="p-1.5 rounded-md text-[#64748B] hover:text-amber-700 hover:bg-amber-50 transition-colors cursor-pointer"
+                        className="p-1.5 snpsu-icon-btn text-[#64748B] hover:text-amber-700 hover:bg-amber-50"
                         title="Archive Template (Soft Delete)"
+                        aria-label={`Archive ${tpl.name}`}
                       >
                         <Archive size={15} />
                       </button>
@@ -744,8 +751,9 @@ export const EmailTemplatesView: React.FC = () => {
                         setHistoryTemplate(tpl);
                         setSelectedVersionSnapshot(null);
                       }}
-                      className="p-1.5 rounded-md text-[#64748B] hover:text-indigo-600 hover:bg-indigo-50 transition-colors cursor-pointer"
+                      className="p-1.5 snpsu-icon-btn text-[#64748B] hover:text-indigo-600 hover:bg-indigo-50"
                       title="View Version History & Snapshots"
+                      aria-label={`Version history for ${tpl.name}`}
                     >
                       <History size={15} />
                     </button>
@@ -758,7 +766,7 @@ export const EmailTemplatesView: React.FC = () => {
                         setDeleteConfirmInput('');
                         setDeleteModalError(null);
                       }}
-                      className="p-1.5 rounded-md text-[#64748B] hover:text-rose-700 hover:bg-rose-50 transition-colors cursor-pointer"
+                      className="p-1.5 snpsu-icon-btn text-[#64748B] hover:text-rose-700 hover:bg-rose-50"
                       title="Permanently Delete Template"
                       aria-label={`Permanently delete ${tpl.name}`}
                     >
@@ -1342,7 +1350,7 @@ export const EmailTemplatesView: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setEditorMode('blocks')}
-                    className={`px-2.5 sm:px-3 py-1.5 min-h-8 rounded-md text-xs font-semibold transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap ${
+                    className={`px-2.5 sm:px-3 py-1.5 min-h-8 rounded-md text-xs font-semibold snpsu-control-pill flex items-center justify-center gap-1.5 whitespace-nowrap ${
                       editorMode === 'blocks'
                         ? 'bg-[#172E58] text-white shadow-xs'
                         : 'text-[#64748B] hover:text-[#172E58]'
@@ -1354,7 +1362,7 @@ export const EmailTemplatesView: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setEditorMode('preview')}
-                    className={`px-2.5 sm:px-3 py-1.5 min-h-8 rounded-md text-xs font-semibold transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap ${
+                    className={`px-2.5 sm:px-3 py-1.5 min-h-8 rounded-md text-xs font-semibold snpsu-control-pill flex items-center justify-center gap-1.5 whitespace-nowrap ${
                       editorMode === 'preview'
                         ? 'bg-[#1456AD] text-white shadow-xs'
                         : 'text-[#64748B] hover:text-[#172E58]'
@@ -1366,7 +1374,7 @@ export const EmailTemplatesView: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setEditorMode('html')}
-                    className={`px-2.5 sm:px-3 py-1.5 min-h-8 rounded-md text-xs font-semibold transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap ${
+                    className={`px-2.5 sm:px-3 py-1.5 min-h-8 rounded-md text-xs font-semibold snpsu-control-pill flex items-center justify-center gap-1.5 whitespace-nowrap ${
                       editorMode === 'html'
                         ? 'bg-[#1456AD] text-white shadow-xs'
                         : 'text-[#64748B] hover:text-[#172E58]'
@@ -1378,7 +1386,7 @@ export const EmailTemplatesView: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setEditorMode('text')}
-                    className={`px-2.5 sm:px-3 py-1.5 min-h-8 rounded-md text-xs font-semibold transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap ${
+                    className={`px-2.5 sm:px-3 py-1.5 min-h-8 rounded-md text-xs font-semibold snpsu-control-pill flex items-center justify-center gap-1.5 whitespace-nowrap ${
                       editorMode === 'text'
                         ? 'bg-slate-700 text-white shadow-xs'
                         : 'text-[#64748B] hover:text-[#172E58]'
@@ -1391,11 +1399,11 @@ export const EmailTemplatesView: React.FC = () => {
 
                 {/* Sub-controls when in Live Preview mode */}
                 {editorMode === 'preview' && (
-                  <div className="flex items-center gap-1 bg-white p-1 rounded-lg border border-[#CBD5E1] self-start sm:self-auto">
+                  <div className="flex items-center gap-1 bg-white p-1 rounded-lg border border-[#CBD5E1] self-start sm:self-auto snpsu-panel-enter">
                     <button
                       type="button"
                       onClick={() => setPreviewDevice('desktop')}
-                      className={`px-2.5 py-1 min-h-7 rounded text-xs font-semibold flex items-center gap-1 cursor-pointer whitespace-nowrap ${
+                      className={`px-2.5 py-1 min-h-7 rounded text-xs font-semibold flex items-center gap-1 snpsu-control-pill whitespace-nowrap ${
                         previewDevice === 'desktop'
                           ? 'bg-[#172E58] text-white'
                           : 'text-[#64748B] hover:text-[#172E58]'
@@ -1406,7 +1414,7 @@ export const EmailTemplatesView: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setPreviewDevice('mobile')}
-                      className={`px-2.5 py-1 min-h-7 rounded text-xs font-semibold flex items-center gap-1 cursor-pointer whitespace-nowrap ${
+                      className={`px-2.5 py-1 min-h-7 rounded text-xs font-semibold flex items-center gap-1 snpsu-control-pill whitespace-nowrap ${
                         previewDevice === 'mobile'
                           ? 'bg-[#172E58] text-white'
                           : 'text-[#64748B] hover:text-[#172E58]'

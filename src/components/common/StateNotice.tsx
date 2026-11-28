@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertCircle, Database, Lock, RefreshCw, Inbox, LogIn } from 'lucide-react';
+import { AlertCircle, Database, Lock, RefreshCw, Inbox, LogIn, WifiOff } from 'lucide-react';
 import { Card } from './Card';
 import { Button } from './Button';
 import { PageLoader } from './Loading';
@@ -111,24 +111,35 @@ export const StateNotice: React.FC<StateNoticeProps> = ({
   }
 
   if (kind === 'error') {
+    const isNetwork =
+      errorCode === 'NETWORK_UNAVAILABLE' || errorCode === 'REQUEST_TIMEOUT' || statusCode === 0;
     const isSchemaMissing = errorCode === 'DATABASE_SCHEMA_MISSING';
-    const isDb = isSchemaMissing || errorCode === 'DATABASE_UNAVAILABLE' || statusCode === 503;
+    const isDb = !isNetwork && (isSchemaMissing || errorCode === 'DATABASE_UNAVAILABLE' || statusCode === 503);
 
     return (
       <Card className="border-rose-200 bg-rose-50/50">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-start gap-3">
             <div className="p-2.5 rounded-xl bg-rose-100 text-rose-700 shrink-0">
-              {isDb ? <Database size={18} /> : <AlertCircle size={18} />}
+              {isNetwork ? <WifiOff size={18} /> : isDb ? <Database size={18} /> : <AlertCircle size={18} />}
             </div>
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h4 className="text-sm font-bold text-rose-900">
-                  {title || (isSchemaMissing ? 'Database Schema Not Initialized' : isDb ? 'Database Service Unavailable' : 'Unable to Load Records')}
+                  {title ||
+                    (isNetwork
+                      ? 'Backend Server Unreachable'
+                      : isSchemaMissing
+                      ? 'Database Schema Not Initialized'
+                      : isDb
+                      ? 'Database Service Unavailable'
+                      : 'Unable to Load Records')}
                 </h4>
-                {(errorCode || statusCode) && (
+                {(errorCode || (statusCode && statusCode > 0)) && (
                   <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-200">
-                    {statusCode ? `HTTP ${statusCode}` : ''}{statusCode && errorCode ? ' • ' : ''}{errorCode || ''}
+                    {statusCode && statusCode > 0 ? `HTTP ${statusCode}` : ''}
+                    {statusCode && statusCode > 0 && errorCode ? ' • ' : ''}
+                    {errorCode || ''}
                   </span>
                 )}
               </div>

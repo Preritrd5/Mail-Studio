@@ -624,7 +624,7 @@ export const ComposeEmailView: React.FC = () => {
                 type="button"
                 data-testid="compose-toggle-editor"
                 onClick={() => setActiveTab('editor')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 min-h-8 rounded-[7px] text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 min-h-8 rounded-[7px] text-xs font-semibold snpsu-control-pill whitespace-nowrap ${
                   activeTab === 'editor'
                     ? 'bg-[#1456AD] text-white shadow-xs'
                     : 'text-[#64748B] hover:text-[#172E58]'
@@ -637,7 +637,7 @@ export const ComposeEmailView: React.FC = () => {
                 type="button"
                 data-testid="compose-toggle-preview"
                 onClick={() => setActiveTab('preview')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 min-h-8 rounded-[7px] text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 min-h-8 rounded-[7px] text-xs font-semibold snpsu-control-pill whitespace-nowrap ${
                   activeTab === 'preview'
                     ? 'bg-[#1456AD] text-white shadow-xs'
                     : 'text-[#64748B] hover:text-[#172E58]'
@@ -868,7 +868,7 @@ export const ComposeEmailView: React.FC = () => {
                       key={v.token}
                       type="button"
                       onClick={() => insertVariable(v.token)}
-                      className="px-2 py-1 bg-white hover:bg-[#EBF3FC] text-[#1456AD] hover:text-[#0f438a] border border-[#CBD5E1] hover:border-[#1456AD] rounded-lg text-[11px] font-mono font-medium transition-all shadow-2xs flex items-center gap-1 cursor-pointer"
+                      className="px-2 py-1 bg-white hover:bg-[#EBF3FC] text-[#1456AD] hover:text-[#0E448D] border border-[#CBD5E1] hover:border-[#1456AD] hover:-translate-y-[0.5px] active:translate-y-0 active:scale-95 rounded-lg text-[11px] font-mono font-medium transition-all duration-150 ease-out shadow-2xs flex items-center gap-1 snpsu-focus-ring cursor-pointer"
                       title={`Resolves to: ${v.sample}`}
                     >
                       <span>{v.token}</span>
@@ -907,11 +907,11 @@ export const ComposeEmailView: React.FC = () => {
                     if (errors.body) setErrors((prev) => ({ ...prev, body: undefined }));
                   }}
                   placeholder="Type your message here. Insert tokens using the buttons above..."
-                  className={`w-full p-3.5 text-xs font-sans rounded-xl border bg-white text-[#1E293B] focus:outline-none focus:ring-2 focus:ring-[#1456AD] focus:border-transparent transition-all shadow-2xs leading-relaxed ${
-                    errors.body ? 'border-red-400 bg-red-50/20' : 'border-[#CBD5E1]'
+                  className={`w-full p-3.5 text-xs font-sans rounded-xl border bg-white text-[#1E293B] snpsu-input-base focus:shadow-[0_0_0_3px_rgba(20,86,173,0.08)] shadow-2xs leading-relaxed ${
+                    errors.body ? 'border-rose-300 bg-rose-50/20 focus:border-rose-500 focus:ring-rose-500/20' : 'border-[#CBD5E1]'
                   }`}
                 />
-                {errors.body && <p className="mt-1 text-xs text-red-500">{errors.body}</p>}
+                {errors.body && <p className="mt-1 text-xs text-rose-600 font-medium snpsu-panel-enter">{errors.body}</p>}
               </div>
             </div>
           </Card>

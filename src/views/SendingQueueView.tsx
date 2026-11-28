@@ -505,7 +505,7 @@ export const SendingQueueView: React.FC = () => {
               loadingText="Syncing..."
               icon={<RefreshCw size={14} />}
               onClick={() => loadQueueData(false)}
-              className="bg-white/10 text-white hover:bg-white/20 border-white/20"
+              className="bg-white/15 enabled:hover:bg-white/25 text-white border-white/30 focus-visible:ring-[#C69A4C]"
             >
               Sync
             </Button>
@@ -600,7 +600,7 @@ export const SendingQueueView: React.FC = () => {
                       key={camp.id}
                       type="button"
                       onClick={() => handleSelectCampaign(camp.id)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all text-left truncate max-w-[220px] cursor-pointer ${
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium text-left truncate max-w-[220px] snpsu-control-pill ${
                         isSelected
                           ? 'bg-[#172E58] text-white shadow-xs'
                           : 'bg-white text-[#1E293B] hover:bg-slate-100 border border-[#CBD5E1]'

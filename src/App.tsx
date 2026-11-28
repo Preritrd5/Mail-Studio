@@ -34,13 +34,15 @@ function MainAppShell() {
 
         {/* Section View Container */}
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto min-w-0">
-          {activeSection === 'dashboard' && <DashboardView />}
-          {activeSection === 'compose' && <ComposeEmailView />}
-          {activeSection === 'bulk-import' && <BulkImportView />}
-          {activeSection === 'sending-queue' && <SendingQueueView />}
-          {activeSection === 'email-activity' && <EmailActivityView />}
-          {activeSection === 'email-templates' && <EmailTemplatesView />}
-          {activeSection === 'reports' && <ReportsView />}
+          <div key={activeSection} className="snpsu-page-enter">
+            {activeSection === 'dashboard' && <DashboardView />}
+            {activeSection === 'compose' && <ComposeEmailView />}
+            {activeSection === 'bulk-import' && <BulkImportView />}
+            {activeSection === 'sending-queue' && <SendingQueueView />}
+            {activeSection === 'email-activity' && <EmailActivityView />}
+            {activeSection === 'email-templates' && <EmailTemplatesView />}
+            {activeSection === 'reports' && <ReportsView />}
+          </div>
         </main>
 
         {/* Application Footer */}

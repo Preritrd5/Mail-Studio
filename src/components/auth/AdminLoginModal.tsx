@@ -75,7 +75,7 @@ export const AdminLoginModal: React.FC = () => {
         </div>
 
         {errorMessage && (
-          <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 flex items-start gap-2">
+          <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 flex items-start gap-2 snpsu-panel-enter">
             <AlertCircle size={16} className="text-rose-500 shrink-0 mt-0.5" />
             <div>
               <span className="font-semibold block">Authentication Error:</span>
@@ -98,7 +98,7 @@ export const AdminLoginModal: React.FC = () => {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="admin@example.com"
                 required
-                className="w-full pl-9 pr-3.5 h-10 text-sm rounded-[10px] border border-[#CBD5E1] focus:outline-none focus:ring-2 focus:ring-[#1456AD]/20 focus:border-[#1456AD] text-[#1E293B]"
+                className="w-full pl-9 pr-3.5 h-10 text-sm rounded-[10px] border border-[#CBD5E1] snpsu-input-base focus:shadow-[0_0_0_3px_rgba(20,86,173,0.08)] text-[#1E293B]"
               />
             </div>
           </div>
@@ -116,7 +116,7 @@ export const AdminLoginModal: React.FC = () => {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••••••"
                 required
-                className="w-full pl-9 pr-3.5 h-10 text-sm rounded-[10px] border border-[#CBD5E1] focus:outline-none focus:ring-2 focus:ring-[#1456AD]/20 focus:border-[#1456AD] text-[#1E293B]"
+                className="w-full pl-9 pr-3.5 h-10 text-sm rounded-[10px] border border-[#CBD5E1] snpsu-input-base focus:shadow-[0_0_0_3px_rgba(20,86,173,0.08)] text-[#1E293B]"
               />
             </div>
           </div>

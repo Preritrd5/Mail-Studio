@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
+import { useAnimatedPresence } from '../../hooks/useAnimatedPresence';
 
 export interface ModalProps {
   isOpen: boolean;
@@ -23,11 +24,13 @@ export const Modal: React.FC<ModalProps> = ({
   footer,
   headerVariant = 'light',
 }) => {
+  const { shouldRender, isClosing } = useAnimatedPresence(isOpen, 185);
+
   useEffect(() => {
-    if (!isOpen) return;
+    if (!shouldRender) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && isOpen) {
         onClose();
       }
     };
@@ -40,9 +43,9 @@ export const Modal: React.FC<ModalProps> = ({
       document.body.style.overflow = prevOverflow;
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isOpen, onClose]);
+  }, [shouldRender, isOpen, onClose]);
 
-  if (!isOpen) return null;
+  if (!shouldRender) return null;
 
   const maxWidthStyles: Record<NonNullable<ModalProps['maxWidth']>, string> = {
     sm: 'sm:max-w-sm',
@@ -59,14 +62,18 @@ export const Modal: React.FC<ModalProps> = ({
 
   const modalContent = (
     <div
-      className="fixed inset-0 z-50 !mt-0 flex items-center justify-center p-2 sm:p-4 bg-[#172E58]/50 backdrop-blur-xs"
+      className={`fixed inset-0 z-50 !mt-0 flex items-center justify-center p-2 sm:p-4 bg-[#172E58]/50 backdrop-blur-xs ${
+        isClosing ? 'snpsu-backdrop-out pointer-events-none' : 'snpsu-backdrop-in'
+      }`}
       onClick={onClose}
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={`w-full ${maxWidthStyles[maxWidth]} bg-white rounded-[12px] sm:rounded-[14px] shadow-2xl border border-[#CBD5E1] overflow-hidden flex flex-col max-h-[calc(100dvh-16px)] sm:max-h-[calc(100dvh-32px)] min-w-0`}
+        className={`w-full ${maxWidthStyles[maxWidth]} bg-white rounded-[12px] sm:rounded-[14px] shadow-2xl border border-[#CBD5E1] overflow-hidden flex flex-col max-h-[calc(100dvh-16px)] sm:max-h-[calc(100dvh-32px)] min-w-0 ${
+          isClosing ? 'snpsu-modal-out' : 'snpsu-modal-in'
+        }`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Fixed Header */}
@@ -99,9 +106,9 @@ export const Modal: React.FC<ModalProps> = ({
             type="button"
             onClick={onClose}
             aria-label="Close dialog"
-            className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors cursor-pointer ${
+            className={`w-8 h-8 snpsu-icon-btn shrink-0 ${
               isNavy
-                ? 'text-slate-300 hover:text-white hover:bg-white/10'
+                ? 'text-slate-300 hover:text-white hover:bg-white/10 focus-visible:ring-[#C69A4C]'
                 : 'text-[#64748B] hover:text-[#172E58] hover:bg-[#F4F6FA]'
             }`}
           >

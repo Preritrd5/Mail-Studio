@@ -182,7 +182,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, []);
 
-  // Toast helpers
+  // Toast helpers with duplicate-notification suppression
   const removeToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
@@ -190,11 +190,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const addToast = useCallback(
     (toast: Omit<ToastNotification, 'id'>) => {
       const id = `toast-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-      const newToast: ToastNotification = { ...toast, id };
-      setToasts((prev) => [...prev, newToast]);
-      setTimeout(() => {
-        removeToast(id);
-      }, toast.duration || 4500);
+      let added = false;
+
+      setToasts((prev) => {
+        const isDuplicate = prev.some(
+          (t) =>
+            t.type === toast.type &&
+            t.title === toast.title &&
+            (t.message || '') === (toast.message || '')
+        );
+        if (isDuplicate) return prev;
+        added = true;
+        // Cap visible stack to 4 notifications so UI controls remain unobstructed
+        const next = [...prev, { ...toast, id }];
+        return next.length > 4 ? next.slice(next.length - 4) : next;
+      });
+
+      if (added) {
+        setTimeout(() => {
+          removeToast(id);
+        }, toast.duration || 4500);
+      }
     },
     [removeToast]
   );

@@ -535,11 +535,13 @@ export const EmailActivityView: React.FC = () => {
           </span>
 
           <div className="flex items-center gap-1">
-            <button 
+            <button
+              type="button"
               onClick={() => setPagination(p => ({ ...p, page: Math.max(1, p.page - 1) }))}
               disabled={pagination.page <= 1}
-              className="p-1.5 rounded hover:bg-slate-100 text-slate-600 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="w-8 h-8 snpsu-icon-btn hover:bg-[#F4F6FA] text-slate-600 hover:text-[#172E58]"
               title="Previous Page"
+              aria-label="Previous Page"
             >
               <ChevronLeft size={16} />
             </button>
@@ -548,11 +550,13 @@ export const EmailActivityView: React.FC = () => {
               Page {pagination.page} of {pagination.totalPages}
             </span>
 
-            <button 
+            <button
+              type="button"
               onClick={() => setPagination(p => ({ ...p, page: Math.min(pagination.totalPages, p.page + 1) }))}
               disabled={pagination.page >= pagination.totalPages}
-              className="p-1.5 rounded hover:bg-slate-100 text-slate-600 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="w-8 h-8 snpsu-icon-btn hover:bg-[#F4F6FA] text-slate-600 hover:text-[#172E58]"
               title="Next Page"
+              aria-label="Next Page"
             >
               <ChevronRight size={16} />
             </button>

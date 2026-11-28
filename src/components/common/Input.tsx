@@ -21,9 +21,9 @@ export const Input: React.FC<InputProps> = ({
   const inputId = id || (label ? label.toLowerCase().replace(/\s+/g, '-') : undefined);
 
   return (
-    <div className="w-full space-y-1.5">
+    <div className="w-full space-y-1.5 min-w-0">
       {label && (
-        <label htmlFor={inputId} className="block text-xs font-semibold text-[#1E293B]">
+        <label htmlFor={inputId} className="block text-xs font-semibold text-[#1E293B] leading-4">
           {label}
         </label>
       )}
@@ -35,10 +35,12 @@ export const Input: React.FC<InputProps> = ({
         )}
         <input
           id={inputId}
-          className={`w-full bg-white border rounded-[10px] text-sm text-[#1E293B] placeholder-[#94A3B8] transition-colors focus:outline-none focus:ring-2 focus:ring-[#1456AD]/20 focus:border-[#1456AD] ${
+          className={`w-full bg-white border rounded-[10px] text-sm leading-normal text-[#1E293B] placeholder-[#94A3B8] snpsu-input-base focus:shadow-[0_0_0_3px_rgba(20,86,173,0.08)] disabled:bg-slate-50 disabled:opacity-60 disabled:cursor-not-allowed ${
             leftIcon ? 'pl-9' : 'pl-3.5'
-          } ${rightIcon ? 'pr-9' : 'pr-3.5'} py-2.5 h-10 ${
-            error ? 'border-rose-300 bg-rose-50/20' : 'border-[#CBD5E1] hover:border-[#94A3B8]'
+          } ${rightIcon ? 'pr-9' : 'pr-3.5'} py-2 h-10 ${
+            error
+              ? 'border-rose-300 bg-rose-50/20 focus:border-rose-500 focus:ring-rose-500/20 focus:shadow-[0_0_0_3px_rgba(225,29,72,0.08)]'
+              : 'border-[#CBD5E1]'
           } ${className}`}
           {...props}
         />
@@ -48,7 +50,7 @@ export const Input: React.FC<InputProps> = ({
           </span>
         )}
       </div>
-      {error && <p className="text-xs text-rose-600 font-medium">{error}</p>}
+      {error && <p className="text-xs text-rose-600 font-medium snpsu-panel-enter">{error}</p>}
       {!error && helperText && <p className="text-xs text-[#64748B]">{helperText}</p>}
     </div>
   );

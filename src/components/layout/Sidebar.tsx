@@ -12,6 +12,7 @@ import {
 import { useApp } from '../../context/AppContext';
 import { NavigationSection } from '../../types';
 import { BrandWordmark } from '../common/BrandWordmark';
+import { useAnimatedPresence } from '../../hooks/useAnimatedPresence';
 
 export const Sidebar: React.FC = () => {
   const {
@@ -22,6 +23,10 @@ export const Sidebar: React.FC = () => {
     isSidebarCollapsed,
     queueState,
   } = useApp();
+  const { shouldRender: shouldRenderBackdrop, isClosing: isBackdropClosing } = useAnimatedPresence(
+    isMobileMenuOpen,
+    200
+  );
 
   // Close mobile drawer on Escape key
   useEffect(() => {
@@ -99,10 +104,12 @@ export const Sidebar: React.FC = () => {
 
   return (
     <>
-      {/* Mobile backdrop with subtle blur */}
-      {isMobileMenuOpen && (
+      {/* Mobile backdrop with smooth fade */}
+      {shouldRenderBackdrop && (
         <div
-          className="fixed inset-0 z-40 bg-[#172E58]/60 backdrop-blur-xs lg:hidden transition-opacity duration-200"
+          className={`fixed inset-0 z-40 bg-[#172E58]/60 backdrop-blur-xs lg:hidden ${
+            isBackdropClosing ? 'snpsu-backdrop-out pointer-events-none' : 'snpsu-backdrop-in'
+          }`}
           onClick={closeMobileMenu}
           aria-hidden="true"
         />
@@ -110,7 +117,7 @@ export const Sidebar: React.FC = () => {
 
       {/* Sidebar: Deep Navy #172E58 */}
       <aside
-        className={`fixed top-0 bottom-0 left-0 z-40 w-64 bg-[#172E58] text-white flex flex-col border-r border-[#1F3C73] transition-transform duration-200 ease-out lg:transition-[width] ${
+        className={`fixed top-0 bottom-0 left-0 z-40 w-64 bg-[#172E58] text-white flex flex-col border-r border-[#1F3C73] transition-[transform,width] duration-200 ease-out motion-reduce:transition-none ${
           isMobileMenuOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full lg:translate-x-0'
         } ${isSidebarCollapsed ? 'lg:w-20' : 'lg:w-64'}`}
       >
@@ -135,7 +142,7 @@ export const Sidebar: React.FC = () => {
           <button
             type="button"
             onClick={closeMobileMenu}
-            className="w-8 h-8 rounded-lg text-slate-300 hover:text-white hover:bg-white/10 lg:hidden flex items-center justify-center shrink-0 cursor-pointer"
+            className="w-8 h-8 snpsu-icon-btn text-slate-300 hover:text-white hover:bg-white/10 focus-visible:ring-[#C69A4C] lg:hidden shrink-0"
             aria-label="Close mobile navigation"
           >
             <X size={18} />
@@ -167,31 +174,39 @@ export const Sidebar: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => handleNavClick(item.id)}
-                  className={`w-full flex items-center rounded-[10px] transition-colors cursor-pointer ${
+                  className={`w-full flex items-center rounded-[10px] transition-[background-color,color,box-shadow,transform] duration-100 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C69A4C] focus-visible:ring-offset-1 focus-visible:ring-offset-[#172E58] active:scale-[0.99] motion-reduce:transition-none cursor-pointer ${
                     isSidebarCollapsed
                       ? 'justify-between px-3 py-2.5 text-xs font-medium lg:justify-center lg:p-2.5 lg:h-11'
                       : 'justify-between px-3 py-2.5 text-xs font-medium min-h-10'
                   } ${
                     isActive
                       ? 'bg-[#1456AD] text-white shadow-sm shadow-[#1456AD]/30 font-semibold'
-                      : 'text-slate-300 hover:text-white hover:bg-white/5'
+                      : 'text-slate-300 hover:text-white hover:bg-white/10'
                   }`}
                   aria-label={item.label}
                   aria-current={isActive ? 'page' : undefined}
                 >
-                  {/* Left Active Accent Indicator Bar when collapsed on desktop */}
-                  {isSidebarCollapsed && isActive && (
-                    <span className="hidden lg:block absolute left-0 top-2 bottom-2 w-1 rounded-r bg-[#C69A4C]" />
+                  {/* Active gold indicator bar */}
+                  {isActive && (
+                    <span
+                      className={`absolute left-0 top-2 bottom-2 w-1 rounded-r bg-[#C69A4C] transition-opacity duration-150 ${
+                        isSidebarCollapsed ? 'hidden lg:block' : 'block'
+                      }`}
+                    />
                   )}
 
                   <div className={`flex items-center gap-3 min-w-0 ${isSidebarCollapsed ? 'lg:justify-center' : ''}`}>
                     <Icon
                       size={18}
-                      className={`shrink-0 transition-colors ${
-                        isActive ? 'text-[#E7C27B]' : 'text-slate-400 group-hover:text-slate-200'
+                      className={`shrink-0 transition-[color,transform] duration-150 ease-out motion-reduce:transform-none ${
+                        isActive
+                          ? 'text-[#E7C27B]'
+                          : 'text-slate-400 group-hover:text-slate-100 group-hover:translate-x-[1px]'
                       }`}
                     />
-                    <span className={`truncate ${isSidebarCollapsed ? 'lg:hidden' : ''}`}>{item.label}</span>
+                    <span className={`truncate transition-opacity duration-150 ${isSidebarCollapsed ? 'lg:hidden' : ''}`}>
+                      {item.label}
+                    </span>
                   </div>
 
                   {/* Badge in expanded mode (or mobile drawer) */}

@@ -743,6 +743,15 @@ export const BulkImportView: React.FC = () => {
               />
 
               <div
+                role="button"
+                tabIndex={0}
+                aria-label="Drop spreadsheet here or press Enter to browse files"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    fileInputRef.current?.click();
+                  }
+                }}
                 onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
                 onDragLeave={() => setIsDragOver(false)}
                 onDrop={(e) => {
@@ -753,10 +762,10 @@ export const BulkImportView: React.FC = () => {
                   }
                 }}
                 onClick={() => fileInputRef.current?.click()}
-                className={`border-2 border-dashed rounded-[12px] p-8 text-center transition-all cursor-pointer ${
+                className={`border-2 border-dashed rounded-[12px] p-8 text-center transition-all duration-150 ease-out snpsu-focus-ring cursor-pointer ${
                   isDragOver
-                    ? 'border-[#1456AD] bg-[#EBF3FC]/60'
-                    : 'border-[#CBD5E1] bg-[#F8FAFC] hover:border-[#1456AD]/60'
+                    ? 'border-[#1456AD] bg-[#EBF3FC]/75 scale-[1.005] shadow-md'
+                    : 'border-[#CBD5E1] bg-[#F8FAFC] hover:border-[#1456AD]/70 hover:bg-[#F4F8FF]/60'
                 }`}
               >
                 <div className="w-14 h-14 mx-auto rounded-full bg-[#EBF3FC] text-[#1456AD] flex items-center justify-center mb-3.5 shadow-xs">
@@ -850,21 +859,21 @@ export const BulkImportView: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => handleDownloadTemplate('csv')}
-                      className="text-[11px] font-semibold text-[#1456AD] hover:bg-[#1456AD]/5 bg-white border border-[#1456AD]/25 px-2.5 py-1 rounded-md cursor-pointer transition-colors"
+                      className="text-[11px] font-semibold text-[#1456AD] hover:bg-[#1456AD]/10 hover:border-[#1456AD]/50 bg-white border border-[#1456AD]/25 px-2.5 py-1 rounded-md snpsu-control-pill"
                     >
                       Download CSV Template
                     </button>
                     <button
                       type="button"
                       onClick={() => handleDownloadTemplate('xlsx')}
-                      className="text-[11px] font-semibold text-[#1456AD] hover:bg-[#1456AD]/5 bg-white border border-[#1456AD]/25 px-2.5 py-1 rounded-md cursor-pointer transition-colors"
+                      className="text-[11px] font-semibold text-[#1456AD] hover:bg-[#1456AD]/10 hover:border-[#1456AD]/50 bg-white border border-[#1456AD]/25 px-2.5 py-1 rounded-md snpsu-control-pill"
                     >
                       Download XLSX Template
                     </button>
                     <button
                       type="button"
                       onClick={() => handleDownloadTemplate('xls')}
-                      className="text-[11px] font-semibold text-[#1456AD] hover:bg-[#1456AD]/5 bg-white border border-[#1456AD]/25 px-2.5 py-1 rounded-md cursor-pointer transition-colors"
+                      className="text-[11px] font-semibold text-[#1456AD] hover:bg-[#1456AD]/10 hover:border-[#1456AD]/50 bg-white border border-[#1456AD]/25 px-2.5 py-1 rounded-md snpsu-control-pill"
                     >
                       Download XLS Template
                     </button>
@@ -1258,7 +1267,8 @@ export const BulkImportView: React.FC = () => {
                           checked={row.is_selected}
                           disabled={!isEligible || isUpdatingSelection}
                           onChange={() => handleToggleRowSelection(row)}
-                          className="rounded text-[#1456AD] focus:ring-[#1456AD] cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                          aria-label={`Select ${row.recipient_name || row.recipient_email || `row ${row.row_number}`}`}
+                          className="w-4 h-4 rounded border-[#CBD5E1] accent-[#1456AD] text-[#1456AD] transition-transform duration-100 checked:scale-105 snpsu-focus-ring cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
                         />
                       </td>
                       <td className="py-2.5 px-3 font-mono text-[11px] text-[#64748B]">

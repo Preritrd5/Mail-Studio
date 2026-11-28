@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Heading,
   AlignLeft,
@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { EmailBlock, EmailBlockType, InfoCardField } from '../../types';
 import { STANDARD_PLACEHOLDERS, PLACEHOLDER_DETAILS } from '../../services/templateService';
+import { useAnimatedPresence } from '../../hooks/useAnimatedPresence';
 
 interface BlockBasedEditorProps {
   blocks: EmailBlock[];
@@ -47,6 +48,29 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
   const [isVariablesOpen, setIsVariablesOpen] = useState<boolean>(false);
   const [isAddMenuOpen, setIsAddMenuOpen] = useState<boolean>(false);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
+  const addMenuContainerRef = useRef<HTMLDivElement>(null);
+  const { shouldRender: shouldRenderAddMenu, isClosing: isAddMenuClosing } = useAnimatedPresence(
+    isAddMenuOpen,
+    150
+  );
+
+  useEffect(() => {
+    if (!isAddMenuOpen) return;
+    const handleOutside = (e: MouseEvent) => {
+      if (addMenuContainerRef.current && !addMenuContainerRef.current.contains(e.target as Node)) {
+        setIsAddMenuOpen(false);
+      }
+    };
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsAddMenuOpen(false);
+    };
+    document.addEventListener('mousedown', handleOutside);
+    window.addEventListener('keydown', handleEsc);
+    return () => {
+      document.removeEventListener('mousedown', handleOutside);
+      window.removeEventListener('keydown', handleEsc);
+    };
+  }, [isAddMenuOpen]);
 
   // Toggle expansion of a single block's settings
   const toggleExpand = (id: string) => {
@@ -297,7 +321,8 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
         <button
           type="button"
           onClick={() => setIsVariablesOpen(!isVariablesOpen)}
-          className="w-full px-4 py-2.5 bg-[#F8FAFC] hover:bg-slate-100/80 flex items-center justify-between text-left transition-colors cursor-pointer"
+          aria-expanded={isVariablesOpen}
+          className="w-full px-4 py-2.5 bg-[#F8FAFC] hover:bg-slate-100/80 flex items-center justify-between text-left transition-colors duration-150 snpsu-focus-ring cursor-pointer"
         >
           <div className="flex items-center gap-2">
             <Sparkles size={15} className="text-[#C69A4C]" />
@@ -308,12 +333,15 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
           </div>
           <div className="flex items-center gap-1.5 text-xs text-[#64748B]">
             <span>{isVariablesOpen ? 'Hide' : 'Show'}</span>
-            {isVariablesOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            <ChevronDown
+              size={14}
+              className={`transition-transform duration-150 ease-out ${isVariablesOpen ? 'rotate-180' : ''}`}
+            />
           </div>
         </button>
 
         {isVariablesOpen && (
-          <div className="p-3.5 bg-white border-t border-[#CBD5E1] space-y-3">
+          <div className="p-3.5 bg-white border-t border-[#CBD5E1] space-y-3 snpsu-panel-enter">
             <p className="text-[11px] text-[#64748B] leading-relaxed">
               Variables are optional tools. Templates can contain standard static text without variables. Only variables used in the template will be resolved at send time using verified recipient records.
             </p>
@@ -325,13 +353,13 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
                 return (
                   <div
                     key={token}
-                    className="p-2 rounded-lg border border-[#CBD5E1] bg-slate-50 hover:bg-blue-50/50 hover:border-[#1456AD]/30 transition-all flex flex-col justify-between"
+                    className="p-2 rounded-lg border border-[#CBD5E1] bg-slate-50 hover:bg-blue-50/50 hover:border-[#1456AD]/35 hover:shadow-2xs transition-all duration-150 flex flex-col justify-between"
                   >
                     <div>
                       <div className="flex items-center justify-between mb-1">
                         <span className="font-semibold text-[#172E58] text-[11px]">{detail?.label}</span>
                         {isCopied && (
-                          <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-0.5">
+                          <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-0.5 snpsu-panel-enter">
                             <Check size={10} /> Copied
                           </span>
                         )}
@@ -345,7 +373,7 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
                     <button
                       type="button"
                       onClick={() => handleInsertVariable(token)}
-                      className="mt-2 text-[10px] py-1 px-2 rounded bg-white hover:bg-[#1456AD] hover:text-white border border-[#CBD5E1] text-[#172E58] font-semibold transition-all cursor-pointer flex items-center justify-center gap-1 shadow-2xs"
+                      className="mt-2 text-[10px] py-1 px-2 rounded bg-white hover:bg-[#1456AD] hover:text-white border border-[#CBD5E1] hover:border-[#1456AD] text-[#172E58] font-semibold transition-all duration-150 active:scale-[0.98] snpsu-focus-ring cursor-pointer flex items-center justify-center gap-1 shadow-2xs"
                     >
                       <Plus size={11} />
                       <span>Insert / Copy Variable</span>
@@ -371,19 +399,28 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
         </div>
 
         {/* Add Element Dropdown Menu */}
-        <div className="relative shrink-0">
+        <div className="relative shrink-0" ref={addMenuContainerRef}>
           <button
             type="button"
             onClick={() => setIsAddMenuOpen(!isAddMenuOpen)}
-            className="px-3 py-1.5 min-h-8 bg-[#1456AD] hover:bg-[#0F438A] text-white text-xs font-semibold rounded-lg shadow-xs flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap"
+            aria-expanded={isAddMenuOpen}
+            aria-haspopup="true"
+            className="px-3 py-1.5 min-h-8 bg-[#1456AD] hover:bg-[#0E448D] hover:-translate-y-[1px] hover:shadow-md active:translate-y-0 active:scale-[0.98] text-white text-xs font-semibold rounded-lg shadow-xs flex items-center gap-1.5 transition-all duration-150 ease-out snpsu-focus-ring cursor-pointer whitespace-nowrap"
           >
             <Plus size={13} />
             <span>Insert Element</span>
-            <ChevronDown size={13} />
+            <ChevronDown
+              size={13}
+              className={`transition-transform duration-150 ease-out ${isAddMenuOpen ? 'rotate-180' : ''}`}
+            />
           </button>
 
-          {isAddMenuOpen && (
-            <div className="absolute right-0 top-full mt-1.5 w-64 max-w-[calc(100vw-48px)] bg-white rounded-xl shadow-xl border border-[#CBD5E1] p-1.5 z-40 grid grid-cols-1 gap-1 max-h-72 overflow-y-auto">
+          {shouldRenderAddMenu && (
+            <div
+              className={`absolute right-0 top-full mt-1.5 w-64 max-w-[calc(100vw-48px)] bg-white rounded-xl shadow-xl border border-[#CBD5E1] p-1.5 z-40 grid grid-cols-1 gap-1 max-h-72 overflow-y-auto ${
+                isAddMenuClosing ? 'snpsu-dropdown-out pointer-events-none' : 'snpsu-dropdown-in'
+              }`}
+            >
               <div className="px-2.5 py-1 text-[10px] font-bold text-[#64748B] uppercase tracking-wider">
                 Select Content Element
               </div>
@@ -392,7 +429,7 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
                   key={item.type}
                   type="button"
                   onClick={() => handleAddBlock(item.type)}
-                  className="w-full px-2.5 py-1.5 rounded-lg hover:bg-slate-100 flex items-center gap-2.5 text-left transition-colors cursor-pointer"
+                  className="w-full px-2.5 py-1.5 rounded-lg hover:bg-[#EBF3FC]/70 hover:translate-x-[1px] active:scale-[0.99] flex items-center gap-2.5 text-left transition-all duration-150 snpsu-focus-ring cursor-pointer"
                 >
                   <div className={`p-1.5 rounded-md ${item.color} shrink-0`}>
                     {item.icon}
@@ -448,7 +485,7 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
                   </span>
                   <span className="text-xs font-semibold text-[#1E293B] truncate">
                     {block.type === 'heading' && (block.title || 'Heading')}
-                    {block.type === 'paragraph' && (block.content?.substring(0, 40) || 'Paragraph')}
+                    {block.type === 'paragraph' && (block.content?.trim() || 'Paragraph')}
                     {block.type === 'richtext' && 'Rich Text Box'}
                     {block.type === 'infocard' && (block.cardTitle || 'Information Card')}
                     {block.type === 'button' && `Button: "${block.buttonText || 'CTA'}"`}
@@ -471,8 +508,9 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
                       moveBlockUp(index);
                     }}
                     disabled={index === 0}
-                    className="p-1 rounded text-[#64748B] hover:text-[#172E58] hover:bg-slate-200 disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer"
+                    className="p-1 snpsu-icon-btn text-[#64748B] hover:text-[#172E58] hover:bg-slate-200 disabled:hover:bg-transparent"
                     title="Move Block Up"
+                    aria-label="Move block up"
                   >
                     <ArrowUp size={13} />
                   </button>
@@ -483,8 +521,9 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
                       moveBlockDown(index);
                     }}
                     disabled={index === blocks.length - 1}
-                    className="p-1 rounded text-[#64748B] hover:text-[#172E58] hover:bg-slate-200 disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer"
+                    className="p-1 snpsu-icon-btn text-[#64748B] hover:text-[#172E58] hover:bg-slate-200 disabled:hover:bg-transparent"
                     title="Move Block Down"
+                    aria-label="Move block down"
                   >
                     <ArrowDown size={13} />
                   </button>
@@ -494,8 +533,9 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
                       e.stopPropagation();
                       duplicateBlock(index);
                     }}
-                    className="p-1 rounded text-[#64748B] hover:text-[#1456AD] hover:bg-slate-200 cursor-pointer"
+                    className="p-1 snpsu-icon-btn text-[#64748B] hover:text-[#1456AD] hover:bg-[#EBF3FC]"
                     title="Duplicate Block"
+                    aria-label="Duplicate block"
                   >
                     <Copy size={13} />
                   </button>
@@ -505,8 +545,9 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
                       e.stopPropagation();
                       deleteBlock(block.id);
                     }}
-                    className="p-1 rounded text-[#64748B] hover:text-rose-600 hover:bg-rose-50 cursor-pointer"
+                    className="p-1 snpsu-icon-btn text-[#64748B] hover:text-rose-600 hover:bg-rose-50"
                     title="Delete Block"
+                    aria-label="Delete block"
                   >
                     <Trash2 size={13} />
                   </button>
@@ -516,8 +557,9 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
                       e.stopPropagation();
                       toggleExpand(block.id);
                     }}
-                    className="p-1 rounded text-[#1456AD] hover:bg-blue-50 cursor-pointer ml-0.5"
+                    className="p-1 snpsu-icon-btn text-[#1456AD] hover:bg-[#EBF3FC] ml-0.5"
                     title={isExpanded ? 'Collapse Settings' : 'Edit Block Settings'}
+                    aria-label={isExpanded ? 'Collapse block settings' : 'Edit block settings'}
                   >
                     {isExpanded ? <ChevronUp size={14} /> : <Settings size={14} />}
                   </button>
@@ -526,7 +568,7 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
 
               {/* Inline Block Configuration Settings */}
               {isExpanded && (
-                <div className="p-3.5 bg-white space-y-3 border-t border-[#CBD5E1]">
+                <div className="p-3.5 bg-white space-y-3 border-t border-[#CBD5E1] snpsu-panel-enter">
                   {/* HEADING BLOCK CONTROLS */}
                   {block.type === 'heading' && (
                     <div className="space-y-2.5">
@@ -536,7 +578,7 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
                           type="text"
                           value={block.title || ''}
                           onChange={(e) => updateBlock(block.id, { title: e.target.value })}
-                          className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] rounded-lg focus:outline-none focus:border-[#1456AD]"
+                          className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] rounded-lg snpsu-input-base"
                           placeholder="e.g. Official Notification"
                         />
                       </div>
@@ -546,7 +588,7 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
                           <select
                             value={block.subtitle || 'standard'}
                             onChange={(e) => updateBlock(block.id, { subtitle: e.target.value })}
-                            className="w-full px-2 py-1 text-xs border border-[#CBD5E1] rounded-lg bg-white"
+                            className="w-full px-2 py-1.5 text-xs border border-[#CBD5E1] rounded-lg bg-white snpsu-input-base"
                           >
                             <option value="standard">Standard Header</option>
                             <option value="hero-banner">Deep Navy Hero Banner</option>
@@ -557,7 +599,7 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
                           <select
                             value={block.level || 'h2'}
                             onChange={(e) => updateBlock(block.id, { level: e.target.value as any })}
-                            className="w-full px-2 py-1 text-xs border border-[#CBD5E1] rounded-lg bg-white"
+                            className="w-full px-2 py-1.5 text-xs border border-[#CBD5E1] rounded-lg bg-white snpsu-input-base"
                           >
                             <option value="h1">H1 (Large)</option>
                             <option value="h2">H2 (Medium)</option>
@@ -569,7 +611,7 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
                           <select
                             value={block.align || 'left'}
                             onChange={(e) => updateBlock(block.id, { align: e.target.value as any })}
-                            className="w-full px-2 py-1 text-xs border border-[#CBD5E1] rounded-lg bg-white"
+                            className="w-full px-2 py-1.5 text-xs border border-[#CBD5E1] rounded-lg bg-white snpsu-input-base"
                           >
                             <option value="left">Left</option>
                             <option value="center">Center</option>
@@ -588,7 +630,7 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
                         rows={3}
                         value={block.content || ''}
                         onChange={(e) => updateBlock(block.id, { content: e.target.value })}
-                        className="w-full p-2.5 text-xs border border-[#CBD5E1] rounded-lg focus:outline-none focus:border-[#1456AD]"
+                        className="w-full p-2.5 text-xs border border-[#CBD5E1] rounded-lg snpsu-input-base"
                         placeholder="Write paragraph content here..."
                       />
                       <div className="flex items-center justify-between text-[11px]">
@@ -599,10 +641,10 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
                               key={al}
                               type="button"
                               onClick={() => updateBlock(block.id, { align: al })}
-                              className={`px-2 py-0.5 rounded capitalize ${
+                              className={`px-2 py-0.5 rounded capitalize snpsu-control-pill ${
                                 (block.align || 'left') === al
                                   ? 'bg-[#172E58] text-white font-bold'
-                                  : 'bg-slate-100 text-[#64748B]'
+                                  : 'bg-slate-100 text-[#64748B] hover:text-[#172E58]'
                               }`}
                             >
                               {al}
@@ -621,7 +663,7 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
                         rows={4}
                         value={block.content || ''}
                         onChange={(e) => updateBlock(block.id, { content: e.target.value })}
-                        className="w-full p-2.5 font-mono text-xs border border-[#CBD5E1] rounded-lg focus:outline-none focus:border-[#1456AD]"
+                        className="w-full p-2.5 font-mono text-xs border border-[#CBD5E1] rounded-lg snpsu-input-base"
                         placeholder="<div>Enter rich text or notice HTML...</div>"
                       />
                     </div>
@@ -637,7 +679,7 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
                             type="text"
                             value={block.cardTitle || ''}
                             onChange={(e) => updateBlock(block.id, { cardTitle: e.target.value })}
-                            className="w-full h-9 px-2.5 text-xs border border-[#CBD5E1] rounded-lg"
+                            className="w-full h-9 px-2.5 text-xs border border-[#CBD5E1] rounded-lg snpsu-input-base"
                             placeholder="e.g. Recipient Details"
                           />
                         </div>
@@ -646,7 +688,7 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
                           <select
                             value={block.cardBgColor || '#EEF4FF'}
                             onChange={(e) => updateBlock(block.id, { cardBgColor: e.target.value })}
-                            className="w-full h-9 px-2 text-xs border border-[#CBD5E1] rounded-lg bg-white"
+                            className="w-full h-9 px-2 text-xs border border-[#CBD5E1] rounded-lg bg-white snpsu-input-base"
                           >
                             <option value="#EEF4FF">Light Royal Blue (#EEF4FF)</option>
                             <option value="#F8FAFC">Clean Slate Grey (#F8FAFC)</option>
@@ -690,7 +732,7 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
                                   updated[fIdx] = { ...updated[fIdx], icon: e.target.value as any };
                                   updateBlock(block.id, { cardFields: updated });
                                 }}
-                                className="w-full h-8 px-1.5 text-[11px] border border-[#CBD5E1] rounded bg-white"
+                                className="w-full h-8 px-1.5 text-[11px] border border-[#CBD5E1] rounded bg-white snpsu-input-base"
                               >
                                 <option value="user">👤 User</option>
                                 <option value="mail">✉️ Mail</option>
@@ -706,7 +748,7 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
                                   updated[fIdx] = { ...updated[fIdx], label: e.target.value };
                                   updateBlock(block.id, { cardFields: updated });
                                 }}
-                                className="w-full h-8 px-2 text-[11px] border border-[#CBD5E1] rounded bg-white"
+                                className="w-full h-8 px-2 text-[11px] border border-[#CBD5E1] rounded bg-white snpsu-input-base"
                                 placeholder="Label"
                               />
 
@@ -718,7 +760,7 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
                                   updated[fIdx] = { ...updated[fIdx], value: e.target.value };
                                   updateBlock(block.id, { cardFields: updated });
                                 }}
-                                className="w-full h-8 px-2 text-[11px] border border-[#CBD5E1] rounded bg-white font-mono"
+                                className="w-full h-8 px-2 text-[11px] border border-[#CBD5E1] rounded bg-white font-mono snpsu-input-base"
                                 placeholder="Value / Variable"
                               />
 
@@ -728,8 +770,9 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
                                   const updated = (block.cardFields || []).filter((_, idx) => idx !== fIdx);
                                   updateBlock(block.id, { cardFields: updated });
                                 }}
-                                className="w-7 h-7 flex items-center justify-center text-slate-400 hover:text-rose-600 rounded cursor-pointer justify-self-end"
+                                className="w-7 h-7 snpsu-icon-btn text-slate-400 hover:text-rose-600 hover:bg-rose-50 justify-self-end"
                                 title="Remove Field"
+                                aria-label="Remove field"
                               >
                                 <Trash2 size={12} />
                               </button>
@@ -758,7 +801,7 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
                             type="text"
                             value={block.buttonText || ''}
                             onChange={(e) => updateBlock(block.id, { buttonText: e.target.value })}
-                            className="w-full px-2.5 py-1 text-xs border border-[#CBD5E1] rounded-lg"
+                            className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] rounded-lg bg-white snpsu-input-base"
                             placeholder="e.g. Open Details →"
                           />
                         </div>
@@ -768,7 +811,7 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
                             type="text"
                             value={block.buttonUrl || ''}
                             onChange={(e) => updateBlock(block.id, { buttonUrl: e.target.value })}
-                            className="w-full px-2.5 py-1 text-xs font-mono border border-[#CBD5E1] rounded-lg"
+                            className="w-full px-2.5 py-1.5 text-xs font-mono border border-[#CBD5E1] rounded-lg bg-white snpsu-input-base"
                             placeholder="https://... or {{activation_link}}"
                           />
                         </div>
@@ -780,7 +823,7 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
                           <select
                             value={block.buttonBgColor || '#172E58'}
                             onChange={(e) => updateBlock(block.id, { buttonBgColor: e.target.value })}
-                            className="w-full px-2 py-1 text-xs border border-[#CBD5E1] rounded-lg bg-white"
+                            className="w-full px-2 py-1.5 text-xs border border-[#CBD5E1] rounded-lg bg-white snpsu-input-base"
                           >
                             <option value="#172E58">Deep Navy (#172E58)</option>
                             <option value="#1456AD">Royal Blue (#1456AD)</option>
@@ -793,7 +836,7 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
                           <select
                             value={block.buttonRadius ?? 8}
                             onChange={(e) => updateBlock(block.id, { buttonRadius: parseInt(e.target.value, 10) })}
-                            className="w-full px-2 py-1 text-xs border border-[#CBD5E1] rounded-lg bg-white"
+                            className="w-full px-2 py-1.5 text-xs border border-[#CBD5E1] rounded-lg bg-white snpsu-input-base"
                           >
                             <option value={0}>Square (0px)</option>
                             <option value={4}>Subtle (4px)</option>
@@ -806,7 +849,7 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
                           <select
                             value={block.align || 'center'}
                             onChange={(e) => updateBlock(block.id, { align: e.target.value as any })}
-                            className="w-full px-2 py-1 text-xs border border-[#CBD5E1] rounded-lg bg-white"
+                            className="w-full px-2 py-1.5 text-xs border border-[#CBD5E1] rounded-lg bg-white snpsu-input-base"
                           >
                             <option value="center">Center</option>
                             <option value="left">Left</option>
@@ -818,7 +861,7 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
                           <select
                             value={block.buttonWidth || 'auto'}
                             onChange={(e) => updateBlock(block.id, { buttonWidth: e.target.value as any })}
-                            className="w-full px-2 py-1 text-xs border border-[#CBD5E1] rounded-lg bg-white"
+                            className="w-full px-2 py-1.5 text-xs border border-[#CBD5E1] rounded-lg bg-white snpsu-input-base"
                           >
                             <option value="auto">Auto (Fitted)</option>
                             <option value="full">Full Width</option>
@@ -838,7 +881,7 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
                             type="text"
                             value={block.imageUrl || ''}
                             onChange={(e) => updateBlock(block.id, { imageUrl: e.target.value })}
-                            className="w-full px-2.5 py-1 text-xs border border-[#CBD5E1] rounded-lg"
+                            className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] rounded-lg snpsu-input-base"
                             placeholder="/assets/snpsunexus-logo.png or https://..."
                           />
                         </div>
@@ -848,7 +891,7 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
                             type="text"
                             value={block.imageWidth || '300px'}
                             onChange={(e) => updateBlock(block.id, { imageWidth: e.target.value })}
-                            className="w-full px-2.5 py-1 text-xs border border-[#CBD5E1] rounded-lg"
+                            className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] rounded-lg snpsu-input-base"
                             placeholder="e.g. 100% or 300px"
                           />
                         </div>
@@ -889,7 +932,7 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
                                 newItems[idx] = e.target.value;
                                 updateBlock(block.id, { items: newItems });
                               }}
-                              className="flex-1 px-2.5 py-1 text-xs border border-[#CBD5E1] rounded-lg"
+                              className="flex-1 px-2.5 py-1.5 text-xs border border-[#CBD5E1] rounded-lg snpsu-input-base"
                             />
                             <button
                               type="button"
@@ -897,7 +940,8 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
                                 const newItems = (block.items || []).filter((_, i) => i !== idx);
                                 updateBlock(block.id, { items: newItems });
                               }}
-                              className="p-1 text-slate-400 hover:text-rose-600 rounded cursor-pointer"
+                              className="p-1 snpsu-icon-btn text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+                              aria-label="Remove item"
                             >
                               <Trash2 size={12} />
                             </button>
@@ -916,7 +960,7 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
                           type="text"
                           value={block.signOff || ''}
                           onChange={(e) => updateBlock(block.id, { signOff: e.target.value })}
-                          className="w-full px-2.5 py-1 text-xs border border-[#CBD5E1] rounded-lg"
+                          className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] rounded-lg snpsu-input-base"
                           placeholder="Best regards,"
                         />
                       </div>
@@ -926,7 +970,7 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
                           type="text"
                           value={block.senderName || ''}
                           onChange={(e) => updateBlock(block.id, { senderName: e.target.value })}
-                          className="w-full px-2.5 py-1 text-xs border border-[#CBD5E1] rounded-lg"
+                          className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] rounded-lg snpsu-input-base"
                           placeholder="SNPSUNEXUS"
                         />
                       </div>
@@ -936,7 +980,7 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
                           type="text"
                           value={block.senderTitle || ''}
                           onChange={(e) => updateBlock(block.id, { senderTitle: e.target.value })}
-                          className="w-full px-2.5 py-1 text-xs border border-[#CBD5E1] rounded-lg"
+                          className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] rounded-lg snpsu-input-base"
                           placeholder="Optional subtitle or role"
                         />
                       </div>
@@ -951,7 +995,7 @@ export const BlockBasedEditor: React.FC<BlockBasedEditorProps> = ({
                         type="text"
                         value={block.copyrightText || ''}
                         onChange={(e) => updateBlock(block.id, { copyrightText: e.target.value })}
-                        className="w-full px-2.5 py-1 text-xs border border-[#CBD5E1] rounded-lg"
+                        className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] rounded-lg snpsu-input-base"
                         placeholder="© {{current_year}} SNPSUNEXUS. All rights reserved."
                       />
                     </div>

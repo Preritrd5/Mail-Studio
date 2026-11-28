@@ -277,7 +277,7 @@ export const ReportsView: React.FC = () => {
             type="button"
             onClick={() => fetchReportsData(true)}
             disabled={refreshing || loading}
-            className="w-8 h-8 flex items-center justify-center hover:bg-slate-100 rounded-lg text-slate-500 hover:text-[#1456AD] transition-colors cursor-pointer disabled:opacity-50"
+            className="w-8 h-8 snpsu-icon-btn hover:bg-slate-100 text-slate-500 hover:text-[#1456AD]"
             title="Refresh analytics data"
             aria-label="Refresh analytics data"
           >
@@ -322,7 +322,7 @@ export const ReportsView: React.FC = () => {
                   key={r.id}
                   type="button"
                   onClick={() => setDateRange(r.id)}
-                  className={`px-2.5 py-1.5 rounded-[7px] text-xs font-semibold whitespace-nowrap text-center transition-all cursor-pointer ${
+                  className={`px-2.5 py-1.5 rounded-[7px] text-xs font-semibold whitespace-nowrap text-center snpsu-control-pill ${
                     dateRange === r.id
                       ? 'bg-white text-[#1456AD] shadow-xs'
                       : 'text-[#64748B] hover:text-[#172E58]'
@@ -470,8 +470,8 @@ export const ReportsView: React.FC = () => {
                         border: 'none',
                       }}
                     />
-                    <Bar dataKey="sent" fill="#1456AD" radius={[4, 4, 0, 0]} name="Accepted (Sent)" />
-                    <Bar dataKey="failed" fill="#E11D48" radius={[4, 4, 0, 0]} name="Failed Attempts" />
+                    <Bar dataKey="sent" fill="#1456AD" radius={[4, 4, 0, 0]} name="Accepted (Sent)" animationDuration={450} />
+                    <Bar dataKey="failed" fill="#E11D48" radius={[4, 4, 0, 0]} name="Failed Attempts" animationDuration={450} />
                   </BarChart>
                 </ResponsiveContainer>
               )}

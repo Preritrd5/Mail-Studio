@@ -12,6 +12,7 @@ import {
 import { useApp } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
 import { NavigationSection } from '../../types';
+import { useAnimatedPresence } from '../../hooks/useAnimatedPresence';
 
 const sectionMeta: Record<NavigationSection, { title: string; breadcrumb: string; subtitle: string }> = {
   dashboard: {
@@ -62,6 +63,10 @@ export const Header: React.FC = () => {
   const { user, adminProfile, isAdmin, logout, openAuthModal } = useAuth();
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const { shouldRender: shouldRenderMenu, isClosing: isMenuClosing } = useAnimatedPresence(
+    isProfileMenuOpen,
+    150
+  );
 
   const current = sectionMeta[activeSection] || {
     title: 'SNPSUNEXUS Mail Studio',
@@ -69,15 +74,24 @@ export const Header: React.FC = () => {
     subtitle: 'Email Management Platform',
   };
 
-  // Close dropdown on click outside
+  // Close dropdown on click outside or Escape
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setIsProfileMenuOpen(false);
       }
     };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsProfileMenuOpen(false);
+      }
+    };
     document.addEventListener('click', handleClickOutside);
-    return () => document.removeEventListener('click', handleClickOutside);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('click', handleClickOutside);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
   }, []);
 
   const handleNotificationClick = () => {
@@ -122,7 +136,7 @@ export const Header: React.FC = () => {
           <button
             type="button"
             onClick={toggleMobileMenu}
-            className="w-9 h-9 -ml-1 text-[#64748B] hover:text-[#172E58] hover:bg-[#F4F6FA] rounded-lg lg:hidden flex items-center justify-center shrink-0 cursor-pointer"
+            className="w-9 h-9 -ml-1 snpsu-icon-btn text-[#64748B] hover:text-[#172E58] hover:bg-[#F4F6FA] lg:hidden shrink-0"
             aria-label="Open sidebar drawer"
           >
             <Menu size={20} />
@@ -132,7 +146,7 @@ export const Header: React.FC = () => {
           <button
             type="button"
             onClick={toggleSidebarCollapse}
-            className="w-9 h-9 -ml-1 text-[#64748B] hover:text-[#172E58] hover:bg-[#F4F6FA] rounded-lg hidden lg:flex items-center justify-center shrink-0 transition-colors cursor-pointer"
+            className="w-9 h-9 -ml-1 snpsu-icon-btn text-[#64748B] hover:text-[#172E58] hover:bg-[#F4F6FA] hidden lg:inline-flex shrink-0"
             title={isSidebarCollapsed ? 'Expand sidebar (Ctrl+B)' : 'Collapse sidebar (Ctrl+B)'}
             aria-label={isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
@@ -171,7 +185,7 @@ export const Header: React.FC = () => {
           <button
             type="button"
             onClick={handleNotificationClick}
-            className="relative w-9 h-9 text-[#64748B] hover:text-[#172E58] hover:bg-[#F4F6FA] rounded-lg transition-colors flex items-center justify-center shrink-0 cursor-pointer"
+            className="relative w-9 h-9 snpsu-icon-btn text-[#64748B] hover:text-[#172E58] hover:bg-[#F4F6FA] shrink-0"
             title="Notifications"
             aria-label="Notifications"
           >
@@ -190,7 +204,7 @@ export const Header: React.FC = () => {
                   e.stopPropagation();
                   setIsProfileMenuOpen((prev) => !prev);
                 }}
-                className="flex items-center gap-2.5 pl-1 text-left p-1 rounded-xl hover:bg-[#F4F6FA] transition-colors focus:outline-none cursor-pointer"
+                className="flex items-center gap-2.5 pl-1 text-left p-1 rounded-xl hover:bg-[#F4F6FA] active:scale-[0.99] transition-all duration-150 snpsu-focus-ring cursor-pointer"
                 aria-expanded={isProfileMenuOpen}
                 aria-haspopup="true"
               >
@@ -225,13 +239,20 @@ export const Header: React.FC = () => {
                   </span>
                 </div>
 
-                <ChevronDown size={14} className="text-[#64748B] hidden sm:block shrink-0" />
+                <ChevronDown
+                  size={14}
+                  className={`text-[#64748B] hidden sm:block shrink-0 transition-transform duration-150 ease-out ${
+                    isProfileMenuOpen ? 'rotate-180 text-[#172E58]' : ''
+                  }`}
+                />
               </button>
 
               {/* Profile Popover / Dropdown Menu */}
-              {isProfileMenuOpen && (
+              {shouldRenderMenu && (
                 <div
-                  className="absolute right-0 mt-2 w-64 max-w-[calc(100vw-24px)] bg-white rounded-2xl shadow-xl border border-[#CBD5E1] p-3 z-50 text-xs"
+                  className={`absolute right-0 mt-2 w-64 max-w-[calc(100vw-24px)] bg-white rounded-2xl shadow-xl border border-[#CBD5E1] p-3 z-50 text-xs ${
+                    isMenuClosing ? 'snpsu-dropdown-out pointer-events-none' : 'snpsu-dropdown-in'
+                  }`}
                   onClick={(e) => e.stopPropagation()}
                 >
                   <div className="p-2 border-b border-[#CBD5E1] mb-2">
@@ -252,7 +273,7 @@ export const Header: React.FC = () => {
                       e.stopPropagation();
                       handleSignOut();
                     }}
-                    className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-red-600 hover:bg-red-50 font-medium transition-colors cursor-pointer"
+                    className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-red-600 hover:bg-red-50 active:scale-[0.99] font-medium transition-all duration-150 snpsu-focus-ring cursor-pointer"
                   >
                     <LogOut size={14} />
                     <span>Sign Out</span>
@@ -264,7 +285,7 @@ export const Header: React.FC = () => {
             <button
               type="button"
               onClick={openAuthModal}
-              className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-2 min-h-9 rounded-[10px] bg-[#1456AD] text-white hover:bg-[#0f438a] font-medium text-xs transition-colors shadow-xs cursor-pointer shrink-0 whitespace-nowrap"
+              className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-2 min-h-9 rounded-[10px] bg-[#1456AD] text-white hover:bg-[#0E448D] hover:-translate-y-[1px] hover:shadow-[0_4px_12px_rgba(20,86,173,0.28)] active:translate-y-0 active:scale-[0.98] font-medium text-xs transition-all duration-150 ease-out shadow-sm snpsu-focus-ring cursor-pointer shrink-0 whitespace-nowrap"
             >
               <LogIn size={15} className="shrink-0" />
               <span>Sign In</span>
