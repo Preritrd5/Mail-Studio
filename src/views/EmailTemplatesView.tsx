@@ -1,5 +1,6 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { parseHtmlToBlocks } from '../services/templateHtmlParser';
+import { useUrlQueryState } from '../hooks/useUrlQueryState';
 import { 
   Plus, 
   Eye, 
@@ -76,10 +77,25 @@ export const EmailTemplatesView: React.FC = () => {
     addToast
   } = useApp();
 
-  // Status & Filter states
-  const [statusFilter, setStatusFilter] = useState<'active' | 'archived'>('active');
-  const [selectedCategory, setSelectedCategory] = useState<string>('All');
-  const [searchQuery, setSearchQuery] = useState('');
+  const { searchParams, patchQueryParams } = useUrlQueryState();
+
+  // Status & Filter states (initialized & persisted in URL query parameters)
+  const [statusFilter, setStatusFilter] = useState<'active' | 'archived'>(() =>
+    searchParams.get('status') === 'archived' ? 'archived' : 'active'
+  );
+  const [selectedCategory, setSelectedCategory] = useState<string>(() => searchParams.get('category') || 'All');
+  const [searchQuery, setSearchQuery] = useState(() => searchParams.get('search') || '');
+
+  useEffect(() => {
+    patchQueryParams(
+      {
+        status: statusFilter,
+        category: selectedCategory,
+        search: searchQuery,
+      },
+      { status: 'active', category: 'All', search: '' }
+    );
+  }, [statusFilter, selectedCategory, searchQuery, patchQueryParams]);
 
   // Modals & Drawers
   const [previewTemplate, setPreviewTemplate] = useState<EmailTemplateItem | null>(null);

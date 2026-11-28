@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   NavigationSection,
   EmailTemplateItem,
@@ -13,6 +14,7 @@ import { StorageService } from '../services/storageService';
 import { TemplateService, STANDARD_PLACEHOLDERS } from '../services/templateService';
 import { queueService, QueueCampaign, QueueStepResult, WorkerHealth } from '../services/queueService';
 import { useAuth } from './AuthContext';
+import { getPathForSection, getSectionFromPathname } from '../routes/routeConfig';
 
 export interface DataLoadState {
   status: 'idle' | 'loading' | 'loaded' | 'empty' | 'auth_required' | 'error';
@@ -119,16 +121,39 @@ interface AppContextType {
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
+const VALID_DATE_RANGES: DateRange[] = ['today', '7d', '30d', 'all'];
+const DATE_RANGE_STORAGE_KEY = 'snpsunexus_pref_date_range';
+
+function readInitialDateRange(search: string): DateRange {
+  const params = new URLSearchParams(search);
+  const urlRange = params.get('range') as DateRange | null;
+  if (urlRange && VALID_DATE_RANGES.includes(urlRange)) {
+    return urlRange;
+  }
+  try {
+    const saved = window.sessionStorage?.getItem(DATE_RANGE_STORAGE_KEY) as DateRange | null;
+    if (saved && VALID_DATE_RANGES.includes(saved)) {
+      return saved;
+    }
+  } catch {
+    // Ignore restricted sessionStorage access
+  }
+  return '7d';
+}
+
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user, isLoading: isAuthLoading } = useAuth();
+  const { user, isAdmin, isInitializing: isAuthInitializing } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
 
   // Purge any legacy client-side demo records stored by earlier versions
   useEffect(() => {
     StorageService.clearLegacyDemoStorage();
   }, []);
 
-  // Navigation state
-  const [activeSection, setActiveSection] = useState<NavigationSection>('dashboard');
+  // Route-derived navigation state (never resets to Dashboard on refresh)
+  const activeSection: NavigationSection =
+    getSectionFromPathname(location.pathname) || 'dashboard';
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() =>
     StorageService.getSidebarCollapsed()
@@ -150,8 +175,48 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Toasts state
   const [toasts, setToasts] = useState<ToastNotification[]>([]);
 
-  // Date filter
-  const [dateRange, setDateRange] = useState<DateRange>('7d');
+  // Date filter persisted via URL query param (?range=) & sessionStorage preference
+  const [dateRange, setDateRangeState] = useState<DateRange>(() =>
+    readInitialDateRange(location.search)
+  );
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const urlRange = params.get('range') as DateRange | null;
+    if (urlRange && VALID_DATE_RANGES.includes(urlRange) && urlRange !== dateRange) {
+      setDateRangeState(urlRange);
+      try {
+        window.sessionStorage?.setItem(DATE_RANGE_STORAGE_KEY, urlRange);
+      } catch {
+        // Ignore restricted sessionStorage access
+      }
+    }
+  }, [location.search, dateRange]);
+
+  const setDateRange = useCallback(
+    (range: DateRange) => {
+      setDateRangeState(range);
+      try {
+        window.sessionStorage?.setItem(DATE_RANGE_STORAGE_KEY, range);
+      } catch {
+        // Ignore restricted sessionStorage access
+      }
+      if (activeSection === 'dashboard' || activeSection === 'reports') {
+        const params = new URLSearchParams(location.search);
+        params.set('range', range);
+        const searchStr = params.toString();
+        navigate(
+          {
+            pathname: location.pathname,
+            search: searchStr ? `?${searchStr}` : '',
+            hash: location.hash,
+          },
+          { replace: true }
+        );
+      }
+    },
+    [activeSection, location.pathname, location.search, location.hash, navigate]
+  );
 
   // Templates state
   const [templates, setTemplates] = useState<EmailTemplateItem[]>([]);
@@ -215,7 +280,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     [removeToast]
   );
 
-  const userId = user?.id ?? null;
+  const userId = !isAuthInitializing && user && isAdmin ? user.id : null;
 
   // Fetch templates from real backend API only
   const refreshTemplates = useCallback(async () => {
@@ -455,17 +520,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   ]);
 
   useEffect(() => {
-    if (isAuthLoading) return;
+    if (isAuthInitializing || !userId) return;
     refreshTemplates();
     refreshQueueBadge();
-  }, [isAuthLoading, refreshTemplates, refreshQueueBadge]);
+  }, [isAuthInitializing, userId, refreshTemplates, refreshQueueBadge]);
 
-  // Navigation handlers
-  const navigateTo = useCallback((section: NavigationSection) => {
-    setActiveSection(section);
-    setIsMobileMenuOpen(false);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, []);
+  // Navigation handlers (real URL history push so browser Back/Forward & refresh persist)
+  const navigateTo = useCallback(
+    (section: NavigationSection) => {
+      const targetPath = getPathForSection(section);
+      setIsMobileMenuOpen(false);
+      if (location.pathname !== targetPath) {
+        navigate(targetPath);
+      }
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    },
+    [location.pathname, navigate]
+  );
 
   const toggleMobileMenu = useCallback(() => setIsMobileMenuOpen((prev) => !prev), []);
   const closeMobileMenu = useCallback(() => setIsMobileMenuOpen(false), []);
@@ -486,12 +557,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [toggleSidebarCollapse]);
 
-  const useTemplateInCompose = useCallback((templateId: string, version?: number | null) => {
-    setSelectedComposeTemplateId(templateId);
-    setSelectedComposeTemplateVersion(version ?? null);
-    setActiveSection('compose');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, []);
+  const useTemplateInCompose = useCallback(
+    (templateId: string, version?: number | null) => {
+      setSelectedComposeTemplateId(templateId);
+      setSelectedComposeTemplateVersion(version ?? null);
+      const params = new URLSearchParams();
+      params.set('template', templateId);
+      if (version) {
+        params.set('version', String(version));
+      }
+      navigate(`/compose?${params.toString()}`);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    },
+    [navigate]
+  );
 
   // Template mutations (strict backend API only)
   const addTemplate = useCallback(

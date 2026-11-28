@@ -32,6 +32,7 @@ import {
   QueueRecipient, 
   QueueEvent 
 } from '../services/queueService';
+import { useUrlQueryState } from '../hooks/useUrlQueryState';
 
 export const SendingQueueView: React.FC = () => {
   const {
@@ -44,6 +45,7 @@ export const SendingQueueView: React.FC = () => {
     triggerImmediateQueueStep,
   } = useApp();
   const { user, isLoading: isAuthLoading } = useAuth();
+  const { searchParams, patchQueryParams } = useUrlQueryState();
 
   // State
   const [loading, setLoading] = useState<boolean>(true);
@@ -56,7 +58,11 @@ export const SendingQueueView: React.FC = () => {
   const [syncErrorCode, setSyncErrorCode] = useState<string | undefined>(undefined);
   const [worker, setWorker] = useState<WorkerHealth | null>(null);
   const [campaigns, setCampaigns] = useState<QueueCampaign[]>([]);
-  const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(() => searchParams.get('campaign'));
+
+  useEffect(() => {
+    patchQueryParams({ campaign: selectedCampaignId });
+  }, [selectedCampaignId, patchQueryParams]);
   const [activeCampaign, setActiveCampaign] = useState<QueueCampaign | null>(null);
   const [recipients, setRecipients] = useState<QueueRecipient[]>([]);
   const [events, setEvents] = useState<QueueEvent[]>([]);

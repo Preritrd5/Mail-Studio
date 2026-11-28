@@ -1,4 +1,5 @@
 import { EmailBlock, InfoCardField } from '../types';
+import { formatMessageBodyToEmailHtml, normalizeGreetingPlainText } from './greetingFormatter';
 
 /**
  * Compiles an array of EmailBlocks into clean, production-grade, email-compatible HTML.
@@ -292,6 +293,14 @@ function renderSingleBlockHtml(block: EmailBlock): string {
       const align = block.align || 'left';
       const color = block.textColor || '#1E293B';
       const content = block.content || '';
+      const paragraphStyle = `margin: 0 0 14px 0; font-size: 14px; line-height: 1.65; color: ${color}; text-align: ${align};`;
+
+      // If author entered plain text (with greeting and/or line breaks), format separate <p> paragraphs cleanly
+      const hasInlineTags = /<[a-z][\s\S]*>/i.test(content);
+      if (!hasInlineTags && content.trim()) {
+        return formatMessageBodyToEmailHtml(content, { paragraphStyle });
+      }
+
       return `
       <p style="margin: 0 0 16px 0; font-size: 14px; line-height: 1.65; color: ${color}; text-align: ${align};">
         ${content}
@@ -526,7 +535,7 @@ export function renderBlocksToText(blocks: EmailBlock[]): string {
 
       case 'paragraph':
       case 'richtext':
-        lines.push(stripHtml(block.content || ''));
+        lines.push(normalizeGreetingPlainText(stripHtml(block.content || '')));
         lines.push('');
         break;
 
@@ -682,9 +691,15 @@ export function getBlankTemplateBlocks(): EmailBlock[] {
       align: 'left',
     },
     {
+      id: 'blk-greeting',
+      type: 'paragraph',
+      content: 'Hello <strong>{{recipient_name}}</strong>,',
+      align: 'left',
+    },
+    {
       id: 'blk-paragraph',
       type: 'paragraph',
-      content: 'Hello {{recipient_name}},\n\nWrite your message here. All content elements are completely optional.',
+      content: 'Write your message here. All content elements are completely optional.',
       align: 'left',
     },
     {

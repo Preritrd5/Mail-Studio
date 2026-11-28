@@ -59,7 +59,12 @@ export class AuthService {
    * Verify administrator authorization strictly via backend /api/auth/session.
    * Never trusts editable user_metadata, email substrings, or browser-only flags.
    */
-  public static async verifyAdminStatus(user: User): Promise<{ isAdmin: boolean; profile: AdminProfile | null; error?: string }> {
+  public static async verifyAdminStatus(user: User): Promise<{
+    isAdmin: boolean;
+    profile: AdminProfile | null;
+    error?: string;
+    statusCode?: number;
+  }> {
     if (!user) {
       return { isAdmin: false, profile: null };
     }
@@ -76,12 +81,18 @@ export class AuthService {
           },
         };
       }
-      return { isAdmin: false, profile: null, error: 'Account lacks Certified Administrator authorization.' };
+      return {
+        isAdmin: false,
+        profile: null,
+        error: 'Account lacks Certified Administrator authorization.',
+        statusCode: 403,
+      };
     } catch (err: any) {
       return {
         isAdmin: false,
         profile: null,
         error: err instanceof ApiError ? err.message : 'Unable to verify administrator session with backend.',
+        statusCode: err instanceof ApiError ? err.status : undefined,
       };
     }
   }

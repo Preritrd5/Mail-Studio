@@ -1,3 +1,5 @@
+import { splitLeadingHelloGreeting } from './greetingFormatter';
+
 function escapeHtmlKeepSafeText(str: string): string {
   return String(str || '')
     .replace(/&/g, '&amp;')
@@ -122,6 +124,7 @@ export function syncMessageBodyIntoTemplateHtml(
   // Build styled paragraph elements matching SNPSUNEXUS card typography
   const paragraphsContainer = doc.createDocumentFragment();
   const normalizedText = String(editedMessage || '').replace(/\r\n/g, '\n').trim();
+  const P_STYLE = 'margin: 0 0 14px 0; font-size: 14px; line-height: 1.65; color: #1E293B; text-align: left;';
 
   if (!normalizedText) {
     const emptyP = doc.createElement('p');
@@ -129,19 +132,39 @@ export function syncMessageBodyIntoTemplateHtml(
     emptyP.textContent = 'Message body preview...';
     paragraphsContainer.appendChild(emptyP);
   } else {
-    const blocks = normalizedText.split(/\n{2,}/);
-    blocks.forEach((blockText) => {
-      const p = doc.createElement('p');
-      p.setAttribute('style', 'margin: 0 0 14px 0; font-size: 14px; line-height: 1.65; color: #1E293B; text-align: left;');
-      const lines = blockText.split('\n');
-      lines.forEach((line, lIdx) => {
-        p.appendChild(doc.createTextNode(line));
-        if (lIdx < lines.length - 1) {
-          p.appendChild(doc.createElement('br'));
-        }
+    const split = splitLeadingHelloGreeting(normalizedText);
+
+    if (split.hasGreeting) {
+      const greetingP = doc.createElement('p');
+      greetingP.setAttribute('style', P_STYLE);
+      if (split.greetingName) {
+        greetingP.appendChild(doc.createTextNode('Hello '));
+        const strongEl = doc.createElement('strong');
+        strongEl.textContent = split.greetingName;
+        greetingP.appendChild(strongEl);
+        greetingP.appendChild(doc.createTextNode(','));
+      } else {
+        greetingP.textContent = 'Hello,';
+      }
+      paragraphsContainer.appendChild(greetingP);
+    }
+
+    const remainingBody = split.hasGreeting ? split.bodyText : normalizedText;
+    if (remainingBody) {
+      const blocks = remainingBody.split(/\n{2,}/);
+      blocks.forEach((blockText) => {
+        const p = doc.createElement('p');
+        p.setAttribute('style', P_STYLE);
+        const lines = blockText.split('\n');
+        lines.forEach((line, lIdx) => {
+          p.appendChild(doc.createTextNode(line));
+          if (lIdx < lines.length - 1) {
+            p.appendChild(doc.createElement('br'));
+          }
+        });
+        paragraphsContainer.appendChild(p);
       });
-      paragraphsContainer.appendChild(p);
-    });
+    }
   }
 
   // Replace editable text children in cell while preserving structured cards / buttons / signature cleanly

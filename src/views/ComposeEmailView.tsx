@@ -28,6 +28,12 @@ import {
   extractEditableMessageFromTemplateHtml,
   syncMessageBodyIntoTemplateHtml,
 } from '../services/templateBodySync';
+import {
+  formatMessageBodyToEmailHtml,
+  normalizeGreetingPlainText,
+} from '../services/greetingFormatter';
+
+const COMPOSE_DRAFT_STORAGE_KEY = 'snpsunexus_compose_draft_v1';
 
 interface ComposeDraftState {
   recipientName: string;
@@ -85,9 +91,16 @@ function interpolatePlaceholders(
   return out;
 }
 
-function buildBrandedFreeformHtml(subjectLine: string, bodyText: string): string {
+function buildBrandedFreeformHtml(
+  subjectLine: string,
+  rawBodyText: string,
+  placeholderValues: Record<string, string>
+): string {
   const escapedSubject = escapeHtmlSafe(subjectLine || 'Official Notification');
-  const escapedBody = escapeHtmlSafe(bodyText).replace(/\n/g, '<br>');
+  const formattedBodyHtml = formatMessageBodyToEmailHtml(rawBodyText, {
+    placeholderValues,
+    emptyPlaceholder: '<span style="color:#94A3B8;">Message body preview...</span>',
+  });
   const year = String(new Date().getFullYear());
 
   return `<!DOCTYPE html>
@@ -133,7 +146,7 @@ function buildBrandedFreeformHtml(subjectLine: string, bodyText: string): string
           </tr>
           <tr>
             <td style="padding:26px;font-size:14px;line-height:1.65;color:#1E293B;">
-              ${escapedBody || '<span style="color:#94A3B8;">Message body preview...</span>'}
+              ${formattedBodyHtml}
               <div style="margin-top:24px;font-size:13px;line-height:1.6;color:#1E293B;">
                 <p style="margin:0 0 4px 0;color:#64748B;">Best regards,</p>
                 <p style="margin:0;font-weight:700;color:#172E58;">SNPSUNEXUS</p>
@@ -161,6 +174,84 @@ function buildBrandedFreeformHtml(subjectLine: string, bodyText: string): string
 </html>`;
 }
 
+/**
+ * Normalizes any leading <p>Hello {{recipient_name}}, ...</p> block in a loaded HTML
+ * template so only the recipient name is bolded and the message body always sits in a
+ * separate paragraph below without duplicating existing greetings.
+ */
+function normalizeTemplateGreetingInHtml(html: string, recipientName: string): string {
+  if (!html || typeof html !== 'string') return html;
+  let updated = false;
+  const resolvedName = recipientName.trim();
+
+  return html.replace(/<p(\b[^>]*)>([\s\S]*?)<\/p>/gi, (fullMatch, attrs, innerHtml) => {
+    if (updated) return fullMatch;
+
+    const normalizedInner = String(innerHtml || '').trim();
+    const match = normalizedInner.match(
+      /^(?:<strong>\s*)?Hello(?:\s*<\/strong>)?(?:\s+(?:<strong>\s*)?([^,<]+?)(?:\s*<\/strong>)?)?\s*,([\s\S]*)$/i
+    );
+    if (!match) return fullMatch;
+
+    const rawName = (match[1] || '').trim();
+    const afterCommaRaw = match[2] || '';
+    const hadExplicitBreak = /^\s*<br\s*\/?>/i.test(afterCommaRaw);
+    const afterComma = afterCommaRaw.replace(/^(?:\s*<br\s*\/?>\s*)+/i, '').trim();
+    const plainAfter = afterComma.replace(/<[^>]+>/g, '').trim();
+
+    if (!hadExplicitBreak && plainAfter && /^[a-z]/.test(plainAfter)) {
+      return fullMatch;
+    }
+
+    updated = true;
+    const styleMatch = String(attrs || '').match(/style\s*=\s*"([^"]*)"/i);
+    const pStyle =
+      styleMatch?.[1] ||
+      'margin: 0 0 14px 0; font-size: 14px; line-height: 1.65; color: #1E293B; text-align: left;';
+
+    let displayName = rawName;
+    if (/\{\{\s*recipient_name\s*\}\}/i.test(rawName)) {
+      displayName = resolvedName;
+    } else if (rawName === '[Recipient Name]') {
+      displayName = '';
+    }
+
+    const greetingHtml = displayName
+      ? `<p style="${pStyle}">Hello <strong>${escapeHtmlSafe(displayName)}</strong>,</p>`
+      : `<p style="${pStyle}">Hello,</p>`;
+
+    if (afterComma) {
+      return `${greetingHtml}\n<p style="${pStyle}">${afterComma}</p>`;
+    }
+    return greetingHtml;
+  });
+}
+
+function loadSavedComposeDraft(): ComposeDraftState {
+  try {
+    if (typeof window === 'undefined' || !window.sessionStorage) return INITIAL_DRAFT;
+    const raw = window.sessionStorage.getItem(COMPOSE_DRAFT_STORAGE_KEY);
+    if (!raw) return INITIAL_DRAFT;
+    const parsed = JSON.parse(raw) as Partial<ComposeDraftState>;
+    return {
+      ...INITIAL_DRAFT,
+      recipientName: typeof parsed.recipientName === 'string' ? parsed.recipientName : '',
+      recipient: typeof parsed.recipient === 'string' ? parsed.recipient : '',
+      designation: typeof parsed.designation === 'string' ? parsed.designation : '',
+      activationLink: typeof parsed.activationLink === 'string' ? parsed.activationLink : '',
+      subject: typeof parsed.subject === 'string' ? parsed.subject : '',
+      messageBody: typeof parsed.messageBody === 'string' ? parsed.messageBody : '',
+      selectedTemplateId: typeof parsed.selectedTemplateId === 'string' ? parsed.selectedTemplateId : '',
+      selectedTemplateVersion: typeof parsed.selectedTemplateVersion === 'number' ? parsed.selectedTemplateVersion : null,
+      selectedTemplateName: typeof parsed.selectedTemplateName === 'string' ? parsed.selectedTemplateName : '',
+      baseTemplateHtml: typeof parsed.baseTemplateHtml === 'string' ? parsed.baseTemplateHtml : null,
+      bodyEditedAfterTemplateLoad: Boolean(parsed.bodyEditedAfterTemplateLoad),
+    };
+  } catch {
+    return INITIAL_DRAFT;
+  }
+}
+
 export const ComposeEmailView: React.FC = () => {
   const {
     templates,
@@ -175,10 +266,20 @@ export const ComposeEmailView: React.FC = () => {
   } = useApp();
   const { user, session, isAdmin, openAuthModal } = useAuth();
 
-  // One authoritative compose email draft state driving both Editor and Live Preview
-  const [draft, setDraft] = useState<ComposeDraftState>(INITIAL_DRAFT);
+  // One authoritative compose email draft state driving both Editor and Live Preview (persisted safely in sessionStorage)
+  const [draft, setDraft] = useState<ComposeDraftState>(() => loadSavedComposeDraft());
   const [templateRemovedNotice, setTemplateRemovedNotice] = useState<string | null>(null);
   const [isLoadingSelectedTemplate, setIsLoadingSelectedTemplate] = useState(false);
+
+  useEffect(() => {
+    try {
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        window.sessionStorage.setItem(COMPOSE_DRAFT_STORAGE_KEY, JSON.stringify(draft));
+      }
+    } catch {
+      // Ignore restricted sessionStorage access
+    }
+  }, [draft]);
 
   // Responsive panel state: toggle buttons appear ONLY below 1024px (mobile/tablet)
   const [isDesktopViewport, setIsDesktopViewport] = useState<boolean>(() =>
@@ -465,7 +566,8 @@ export const ComposeEmailView: React.FC = () => {
   }, [draft.subject, placeholderContext]);
 
   const renderedMessage = useMemo(() => {
-    return interpolatePlaceholders(draft.messageBody, placeholderContext, false);
+    const interpolated = interpolatePlaceholders(draft.messageBody, placeholderContext, false);
+    return normalizeGreetingPlainText(interpolated);
   }, [draft.messageBody, placeholderContext]);
 
   const renderedLiveHtml = useMemo(() => {
@@ -473,16 +575,20 @@ export const ComposeEmailView: React.FC = () => {
       const workingTemplateHtml = draft.bodyEditedAfterTemplateLoad
         ? syncMessageBodyIntoTemplateHtml(draft.baseTemplateHtml, draft.messageBody)
         : draft.baseTemplateHtml;
-      return interpolatePlaceholders(workingTemplateHtml, placeholderContext, true);
+      const greetingFormattedHtml = normalizeTemplateGreetingInHtml(
+        workingTemplateHtml,
+        draft.recipientName
+      );
+      return interpolatePlaceholders(greetingFormattedHtml, placeholderContext, true);
     }
-    return buildBrandedFreeformHtml(renderedSubject, renderedMessage);
+    return buildBrandedFreeformHtml(renderedSubject, draft.messageBody, placeholderContext);
   }, [
     draft.baseTemplateHtml,
     draft.bodyEditedAfterTemplateLoad,
     draft.messageBody,
+    draft.recipientName,
     placeholderContext,
     renderedSubject,
-    renderedMessage,
   ]);
 
   const performLiveSend = async () => {
@@ -590,6 +696,11 @@ export const ComposeEmailView: React.FC = () => {
 
   const handleReset = () => {
     setDraft(INITIAL_DRAFT);
+    try {
+      window.sessionStorage?.removeItem(COMPOSE_DRAFT_STORAGE_KEY);
+    } catch {
+      // Ignore restricted sessionStorage access
+    }
     setTemplateRemovedNotice(null);
     setErrors({});
     addToast({

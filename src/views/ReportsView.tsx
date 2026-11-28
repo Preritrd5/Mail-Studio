@@ -38,13 +38,25 @@ import { StateNotice, classifyApiError, DataStateKind } from '../components/comm
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import { reportsService, OverviewMetrics, CampaignReportItem, TimelineItem } from '../services/reportsService';
+import { useUrlQueryState } from '../hooks/useUrlQueryState';
 
 export const ReportsView: React.FC = () => {
   const { dateRange, setDateRange, addToast } = useApp();
   const { user, isLoading: isAuthLoading } = useAuth();
+  const { searchParams, patchQueryParams } = useUrlQueryState();
 
-  const [selectedCampaignId, setSelectedCampaignId] = useState<string>('all');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string>(() => searchParams.get('campaign') || 'all');
+  const [statusFilter, setStatusFilter] = useState<string>(() => searchParams.get('status') || 'all');
+
+  useEffect(() => {
+    patchQueryParams(
+      {
+        campaign: selectedCampaignId,
+        status: statusFilter,
+      },
+      { campaign: 'all', status: 'all' }
+    );
+  }, [selectedCampaignId, statusFilter, patchQueryParams]);
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [exportingCsv, setExportingCsv] = useState<boolean>(false);

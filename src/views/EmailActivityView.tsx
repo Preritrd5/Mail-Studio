@@ -29,16 +29,30 @@ import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import { activityService, ActivityItem, ActivityDetail } from '../services/activityService';
 import { reportsService } from '../services/reportsService';
+import { useUrlQueryState } from '../hooks/useUrlQueryState';
+
+const ACTIVITY_QUERY_DEFAULTS = {
+  search: '',
+  status: 'all',
+  type: 'all',
+  date: 'all',
+  sort: 'created_at',
+  order: 'desc',
+  page: 1,
+};
 
 export const EmailActivityView: React.FC = () => {
   const { addToast } = useApp();
   const { user, isLoading: isAuthLoading } = useAuth();
+  const { searchParams, patchQueryParams } = useUrlQueryState();
+
+  const parsedInitialPage = Math.max(1, parseInt(searchParams.get('page') || '1', 10) || 1);
 
   // State
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [logs, setLogs] = useState<ActivityItem[]>([]);
-  const [pagination, setPagination] = useState({ total: 0, page: 1, limit: 15, totalPages: 1 });
+  const [pagination, setPagination] = useState({ total: 0, page: parsedInitialPage, limit: 15, totalPages: 1 });
   const [loadIssue, setLoadIssue] = useState<{
     kind: Extract<DataStateKind, 'auth_required' | 'error'>;
     message: string;
@@ -46,13 +60,30 @@ export const EmailActivityView: React.FC = () => {
     errorCode?: string;
   } | null>(null);
 
-  // Filters & Search
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [campaignTypeFilter, setCampaignTypeFilter] = useState<string>('all');
-  const [dateFilter, setDateFilter] = useState<string>('all');
-  const [sortBy, setSortBy] = useState<string>('created_at');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  // Filters & Search initialized from URL search parameters for refresh persistence
+  const [searchQuery, setSearchQuery] = useState<string>(() => searchParams.get('search') || '');
+  const [statusFilter, setStatusFilter] = useState<string>(() => searchParams.get('status') || 'all');
+  const [campaignTypeFilter, setCampaignTypeFilter] = useState<string>(() => searchParams.get('type') || 'all');
+  const [dateFilter, setDateFilter] = useState<string>(() => searchParams.get('date') || 'all');
+  const [sortBy, setSortBy] = useState<string>(() => searchParams.get('sort') || 'created_at');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>(() =>
+    searchParams.get('order') === 'asc' ? 'asc' : 'desc'
+  );
+
+  useEffect(() => {
+    patchQueryParams(
+      {
+        search: searchQuery,
+        status: statusFilter,
+        type: campaignTypeFilter,
+        date: dateFilter,
+        sort: sortBy,
+        order: sortOrder,
+        page: pagination.page,
+      },
+      ACTIVITY_QUERY_DEFAULTS
+    );
+  }, [searchQuery, statusFilter, campaignTypeFilter, dateFilter, sortBy, sortOrder, pagination.page, patchQueryParams]);
 
   // Detailed Modal
   const [detailTargetId, setDetailTargetId] = useState<string | null>(null);

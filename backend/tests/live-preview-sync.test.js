@@ -257,6 +257,39 @@ await test('8. renderEmailFromTemplate strictly rejects unsupported {{tokens}} i
   );
 });
 
+await test('9. Normalizes inline Hello greeting into separate <p>Hello <strong>Name</strong>,</p> and message body <p> without duplicating greetings', async () => {
+  const previewRes = await postJson('/api/templates/preview', {
+    subject: 'Welcome to SNPSU Nexus',
+    html_content:
+      '<p>Hello {{recipient_name}}, 🚀 Welcome to SNPSU Nexus! SNPSU Nexus is a student-focused learning platform.</p>',
+    text_content:
+      'Hello {{recipient_name}}, 🚀 Welcome to SNPSU Nexus! SNPSU Nexus is a student-focused learning platform.',
+    variables: { recipient_name: 'Adarsh' },
+  });
+
+  assert.equal(previewRes.status, 200);
+  const html = previewRes.body.data.rendered_html;
+  assert.ok(html.includes('>Hello <strong>Adarsh</strong>,</p>'));
+  assert.ok(html.includes('>🚀 Welcome to SNPSU Nexus! SNPSU Nexus is a student-focused learning platform.</p>'));
+  assert.equal((html.match(/Hello/g) || []).length, 1, 'Must never duplicate existing greeting');
+  assert.equal(
+    previewRes.body.data.rendered_text,
+    'Hello Adarsh,\n\n🚀 Welcome to SNPSU Nexus! SNPSU Nexus is a student-focused learning platform.'
+  );
+});
+
+await test('10. Handles missing recipient_name gracefully in preview without unresolved placeholders', async () => {
+  const previewRes = await postJson('/api/templates/preview', {
+    subject: 'Welcome',
+    html_content: '<p>Hello {{recipient_name}}, 🚀 Welcome to SNPSU Nexus!</p>',
+    variables: { recipient_name: '' },
+  });
+
+  assert.equal(previewRes.status, 200);
+  assert.ok(!previewRes.body.data.rendered_html.includes('{{recipient_name}}'));
+  assert.ok(previewRes.body.data.rendered_html.includes('>🚀 Welcome to SNPSU Nexus!</p>'));
+});
+
 server.closeAllConnections?.();
 await new Promise((resolve) => server.close(resolve));
 console.log('========================================================');

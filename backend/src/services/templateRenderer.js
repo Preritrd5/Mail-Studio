@@ -40,6 +40,7 @@ export function htmlToPlainTextFallback(html) {
       const cleanText = text.replace(/<[^>]+>/g, '').trim();
       return cleanText && !cleanText.includes(href) ? `${cleanText}: ${href}` : href;
     })
+    .replace(/<\/p>\s*<p[^>]*>/gi, '\n\n')
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/(p|div|tr|h1|h2|h3|h4|h5|h6|li)>/gi, '\n')
     .replace(/<li[^>]*>/gi, '- ')
@@ -56,6 +57,77 @@ export function htmlToPlainTextFallback(html) {
     .replace(/\n{3,}/g, '\n\n')
     .replace(/[ \t]{2,}/g, ' ')
     .trim();
+}
+
+/**
+ * Normalizes any leading plain-text "Hello <Name>, <Body>" line so the greeting sits on
+ * its own line separated by a blank line, while preserving multi-line text already formatted.
+ */
+export function normalizeGreetingPlainText(text) {
+  if (!text || typeof text !== 'string') return '';
+  const trimmed = text.replace(/\r\n/g, '\n').trim();
+  const firstNewlineIdx = trimmed.indexOf('\n');
+  if (firstNewlineIdx >= 0) {
+    // Greeting and subsequent lines already occupy separate lines
+    return trimmed;
+  }
+
+  const inlineMatch = trimmed.match(/^(Hello(?:\s+[^,\n]+?)?),\s+([\s\S]+)$/i);
+  if (!inlineMatch) return trimmed;
+
+  const greetingPart = inlineMatch[1].trim();
+  const remainder = inlineMatch[2].trim();
+  if (!remainder || /^[a-z]/.test(remainder)) {
+    return trimmed;
+  }
+
+  return `${greetingPart},\n\n${remainder}`;
+}
+
+/**
+ * Normalizes a leading <p>Hello {{recipient_name}}, ...</p> paragraph in email HTML so:
+ * - "Hello" and comma stay normal weight while ONLY recipient name is <strong>
+ * - Greeting appears in its own <p> and message body starts in a separate <p> below
+ * - Never duplicates an existing greeting or alters lowercase sentence continuations
+ */
+export function normalizeLeadingGreetingHtml(html) {
+  if (!html || typeof html !== 'string') return '';
+  let updated = false;
+
+  return html.replace(/<p(\b[^>]*)>([\s\S]*?)<\/p>/gi, (fullMatch, attrs, innerHtml) => {
+    if (updated) return fullMatch;
+
+    const normalizedInner = String(innerHtml || '').trim();
+    const match = normalizedInner.match(
+      /^(?:<strong>\s*)?Hello(?:\s*<\/strong>)?(?:\s+(?:<strong>\s*)?([^,<]+?)(?:\s*<\/strong>)?)?\s*,([\s\S]*)$/i
+    );
+    if (!match) return fullMatch;
+
+    const rawName = (match[1] || '').trim();
+    const afterCommaRaw = match[2] || '';
+    const hadExplicitBreak = /^\s*<br\s*\/?>/i.test(afterCommaRaw);
+    const afterComma = afterCommaRaw.replace(/^(?:\s*<br\s*\/?>\s*)+/i, '').trim();
+    const plainAfter = afterComma.replace(/<[^>]+>/g, '').trim();
+
+    if (!hadExplicitBreak && plainAfter && /^[a-z]/.test(plainAfter)) {
+      return fullMatch;
+    }
+
+    updated = true;
+    const styleMatch = String(attrs || '').match(/style\s*=\s*"([^"]*)"/i);
+    const pStyle =
+      styleMatch?.[1] ||
+      'margin: 0 0 14px 0; font-size: 14px; line-height: 1.65; color: #1E293B; text-align: left;';
+
+    const greetingHtml = rawName
+      ? `<p style="${pStyle}">Hello <strong>${rawName}</strong>,</p>`
+      : `<p style="${pStyle}">Hello,</p>`;
+
+    if (afterComma) {
+      return `${greetingHtml}\n<p style="${pStyle}">${afterComma}</p>`;
+    }
+    return greetingHtml;
+  });
 }
 
 /**
@@ -93,7 +165,7 @@ export function renderTemplateText(templateText, userValues = {}, { strict = fal
     }
   }
 
-  return output.trim();
+  return normalizeGreetingPlainText(output);
 }
 
 /**
@@ -103,8 +175,8 @@ export function renderTemplateText(templateText, userValues = {}, { strict = fal
 export function renderTemplateHtml(templateHtml, userValues = {}, { strict = false } = {}) {
   if (!templateHtml || typeof templateHtml !== 'string') return '';
 
-  // 1. First sanitize base HTML template structure while preserving responsive layout & tables
-  let workingHtml = sanitizeEmailHtml(templateHtml);
+  // 1. First sanitize base HTML template structure and normalize any leading greeting paragraph
+  let workingHtml = normalizeLeadingGreetingHtml(sanitizeEmailHtml(templateHtml));
 
   // 2. Interpolate dynamic placeholders
   for (const [key, meta] of Object.entries(PLACEHOLDER_REGISTRY)) {
