@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { supabaseAdmin, createDatabaseError } from '../config/supabase.js';
+import { supabaseAdmin, createDatabaseError, resolveAdminUsersRecordId } from '../config/supabase.js';
 
 /**
  * List templates from PostgreSQL with search, category, status filter, and pagination.
@@ -116,6 +116,7 @@ export async function createTemplate({ name, description, category, subject, htm
   const templateId = crypto.randomUUID();
   const versionId = crypto.randomUUID();
   const now = new Date().toISOString();
+  const adminRecordId = await resolveAdminUsersRecordId(userId);
 
   const newTemplate = {
     id: templateId,
@@ -130,8 +131,8 @@ export async function createTemplate({ name, description, category, subject, htm
     archived_at: null,
     created_at: now,
     updated_at: now,
-    created_by: userId || null,
-    updated_by: userId || null,
+    created_by: adminRecordId,
+    updated_by: adminRecordId,
   };
 
   const initialVersion = {
@@ -145,7 +146,7 @@ export async function createTemplate({ name, description, category, subject, htm
     html_content: newTemplate.html_content,
     text_content: newTemplate.text_content,
     created_at: now,
-    created_by: userId || null,
+    created_by: adminRecordId,
     change_summary: 'Initial template creation',
   };
 
@@ -174,6 +175,7 @@ export async function updateTemplate(id, { name, description, category, subject,
   const nextVersion = (current.version || 1) + 1;
   const versionId = crypto.randomUUID();
   const now = new Date().toISOString();
+  const adminRecordId = await resolveAdminUsersRecordId(userId);
 
   const updatedRecord = {
     name: name !== undefined ? name.trim() : current.name,
@@ -184,7 +186,7 @@ export async function updateTemplate(id, { name, description, category, subject,
     text_content: text_content !== undefined ? text_content : current.text_content,
     version: nextVersion,
     updated_at: now,
-    updated_by: userId || null,
+    updated_by: adminRecordId,
   };
 
   const newVersionSnapshot = {
@@ -198,7 +200,7 @@ export async function updateTemplate(id, { name, description, category, subject,
     html_content: updatedRecord.html_content,
     text_content: updatedRecord.text_content,
     created_at: now,
-    created_by: userId || null,
+    created_by: adminRecordId,
     change_summary: changeSummary || `Updated to revision v${nextVersion}`,
   };
 
@@ -251,6 +253,7 @@ export async function archiveTemplate(id, userId) {
   }
 
   const now = new Date().toISOString();
+  const adminRecordId = await resolveAdminUsersRecordId(userId);
 
   const { error } = await supabaseAdmin
     .from('email_templates')
@@ -258,7 +261,7 @@ export async function archiveTemplate(id, userId) {
       is_active: false,
       archived_at: now,
       updated_at: now,
-      updated_by: userId || null,
+      updated_by: adminRecordId,
     })
     .eq('id', id);
 
@@ -279,6 +282,7 @@ export async function restoreTemplate(id, userId) {
   }
 
   const now = new Date().toISOString();
+  const adminRecordId = await resolveAdminUsersRecordId(userId);
 
   const { error } = await supabaseAdmin
     .from('email_templates')
@@ -286,7 +290,7 @@ export async function restoreTemplate(id, userId) {
       is_active: true,
       archived_at: null,
       updated_at: now,
-      updated_by: userId || null,
+      updated_by: adminRecordId,
     })
     .eq('id', id);
 

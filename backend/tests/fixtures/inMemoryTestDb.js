@@ -45,7 +45,7 @@ export function createTestFixturesState(seedMode = 'empty') {
   return {
     admin_users: [
       {
-        id: 'admin-row-test-1',
+        id: 'a1000000-0000-4000-8000-000000000001',
         user_id: 'fe8a2f39-22f7-45e4-a219-87c2c773aaf8',
         display_name: 'Test Administrator',
         email: 'admin@snpsu.edu.in',

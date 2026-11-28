@@ -47,11 +47,11 @@ export async function getTemplate(req, res, next) {
 export async function createTemplate(req, res, next) {
   try {
     const sanitized = validateAndSanitizeTemplate(req.body, false);
-    const userId = req.user?.id;
+    const actorId = req.admin?.id || req.user?.id || null;
 
     const newTemplate = await templateRepo.createTemplate({
       ...sanitized,
-      userId,
+      userId: actorId,
     });
 
     return res.status(201).json({
@@ -71,11 +71,11 @@ export async function updateTemplate(req, res, next) {
   try {
     const { id } = req.params;
     const sanitized = validateAndSanitizeTemplate(req.body, true);
-    const userId = req.user?.id;
+    const actorId = req.admin?.id || req.user?.id || null;
 
     const updated = await templateRepo.updateTemplate(id, {
       ...sanitized,
-      userId,
+      userId: actorId,
     });
 
     return res.status(200).json({
@@ -95,11 +95,11 @@ export async function duplicateTemplate(req, res, next) {
   try {
     const { id } = req.params;
     const { new_name } = req.body || {};
-    const userId = req.user?.id;
+    const actorId = req.admin?.id || req.user?.id || null;
 
     const copy = await templateRepo.duplicateTemplate(id, {
       newName: new_name,
-      userId,
+      userId: actorId,
     });
 
     return res.status(201).json({
@@ -115,8 +115,8 @@ export async function duplicateTemplate(req, res, next) {
 export async function archiveTemplate(req, res, next) {
   try {
     const { id } = req.params;
-    const userId = req.user?.id;
-    const result = await templateRepo.archiveTemplate(id, userId);
+    const actorId = req.admin?.id || req.user?.id || null;
+    const result = await templateRepo.archiveTemplate(id, actorId);
 
     return res.status(200).json({
       success: true,
@@ -131,8 +131,8 @@ export async function archiveTemplate(req, res, next) {
 export async function restoreTemplate(req, res, next) {
   try {
     const { id } = req.params;
-    const userId = req.user?.id;
-    const result = await templateRepo.restoreTemplate(id, userId);
+    const actorId = req.admin?.id || req.user?.id || null;
+    const result = await templateRepo.restoreTemplate(id, actorId);
 
     return res.status(200).json({
       success: true,

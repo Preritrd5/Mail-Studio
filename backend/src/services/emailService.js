@@ -11,7 +11,7 @@ import { smtpDispatchCoordinator } from './smtpDispatchCoordinator.js';
  * Routes all template-backed and raw HTML/text emails through the shared template rendering engine
  * with zero silent fallbacks to plain text.
  */
-export async function executeSendIndividualEmail(rawPayload, user) {
+export async function executeSendIndividualEmail(rawPayload, user, admin = null) {
   const correlationId = `corr_${crypto.randomUUID().slice(0, 12)}`;
 
   // 1. Validate payload and sanitize inputs
@@ -91,7 +91,8 @@ export async function executeSendIndividualEmail(rawPayload, user) {
   });
 
   // 4. Acquire Idempotency Lock
-  const userId = user?.id || 'admin-system-user';
+  const userId = user?.id || '00000000-0000-0000-0000-000000000000';
+  const adminActorId = admin?.id || user?.id || null;
   const lockResult = await acquireIdempotencyLock(sanitized.idempotency_key, userId, payloadHash);
 
   // If duplicate completed request: Return cached result immediately
@@ -111,7 +112,7 @@ export async function executeSendIndividualEmail(rawPayload, user) {
     subject: finalSubject,
     recipientName: sanitized.recipient_name,
     recipientEmail: sanitized.recipient_email,
-    userId,
+    userId: adminActorId,
     idempotencyKey: sanitized.idempotency_key,
     templateId: resolvedTemplateId || null,
     templateVersion: resolvedTemplateVersion || null,

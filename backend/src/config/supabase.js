@@ -51,6 +51,43 @@ export const supabaseAdmin = new Proxy(
   }
 );
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * Resolves a public.admin_users primary key (`id`) from either an admin_users.id
+ * or an auth.users.id (`user_id`). Returns null cleanly if invalid or absent so
+ * nullable foreign keys referencing public.admin_users(id) never fail with 23503/22P02.
+ */
+export async function resolveAdminUsersRecordId(actorId) {
+  if (!actorId || typeof actorId !== 'string') return null;
+  const trimmed = actorId.trim();
+  if (!UUID_REGEX.test(trimmed)) return null;
+
+  const { data: byUserId, error: byUserErr } = await supabaseAdmin
+    .from('admin_users')
+    .select('id')
+    .eq('user_id', trimmed)
+    .maybeSingle();
+
+  if (byUserErr) {
+    throw createDatabaseError('resolveAdminUsersRecordId.byUserId', byUserErr);
+  }
+  if (byUserId?.id) {
+    return byUserId.id;
+  }
+
+  const { data: byAdminId, error: byAdminErr } = await supabaseAdmin
+    .from('admin_users')
+    .select('id')
+    .eq('id', trimmed)
+    .maybeSingle();
+
+  if (byAdminErr) {
+    throw createDatabaseError('resolveAdminUsersRecordId.byAdminId', byAdminErr);
+  }
+  return byAdminId?.id || null;
+}
+
 /**
  * Helper to translate Supabase / PostgREST failures into explicit HTTP 503 service errors
  * so repositories never substitute dummy fallback records or mask database failures as empty states.

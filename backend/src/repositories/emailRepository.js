@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { supabaseAdmin, createDatabaseError } from '../config/supabase.js';
+import { supabaseAdmin, createDatabaseError, resolveAdminUsersRecordId } from '../config/supabase.js';
 
 /**
  * Initializes PostgreSQL database records for an individual email dispatch.
@@ -20,6 +20,7 @@ export async function initializeIndividualEmailRecords({
   const recipientId = crypto.randomUUID();
   const attemptId = crypto.randomUUID();
   const now = new Date().toISOString();
+  const adminRecordId = await resolveAdminUsersRecordId(userId);
 
   // 1. Create campaign
   const { error: campError } = await supabaseAdmin.from('campaigns').insert({
@@ -35,7 +36,7 @@ export async function initializeIndividualEmailRecords({
     pending_count: 1,
     sent_count: 0,
     failed_count: 0,
-    created_by: userId || null,
+    created_by: adminRecordId,
     created_at: now,
     started_at: now,
     idempotency_key: idempotencyKey,

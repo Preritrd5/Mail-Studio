@@ -566,6 +566,42 @@ await test('31. PGRST202 fallback path preserves snapshotted campaigns and remov
   }
 });
 
+// 32. Foreign-Key Resolution: auth.users.id Maps Cleanly to public.admin_users.id
+await test('32. POST /api/templates resolves auth user_id to admin_users.id for created_by FK integrity', async () => {
+  const createdDirect = await templateRepo.createTemplate({
+    name: 'Direct AuthId FK Check',
+    category: 'Notifications',
+    subject: 'Direct Check',
+    html_content: '<p>Hello {{recipient_name}}</p>',
+    text_content: 'Hello {{recipient_name}}',
+    userId: mockAdminUser.id,
+  });
+  assert.equal(createdDirect.created_by, 'a1000000-0000-4000-8000-000000000001');
+  await templateRepo.permanentDeleteTemplate(createdDirect.id, mockAdminUser.id);
+
+  const res = await fetch(`http://127.0.0.1:${TEST_PORT}/api/templates`, {
+    method: 'POST',
+    headers: {
+      Authorization: 'Bearer demo-admin-token',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      name: 'FK Safe Creation Test',
+      category: 'Notifications',
+      subject: 'Official Notice',
+      html_content: '<p>Hello {{recipient_name}}</p>',
+      text_content: 'Hello {{recipient_name}}',
+    }),
+  });
+  assert.equal(res.status, 201);
+  const json = await res.json();
+  assert.equal(json.data.created_by, 'a1000000-0000-4000-8000-000000000001');
+  assert.equal(json.data.updated_by, 'a1000000-0000-4000-8000-000000000001');
+  const ver = testDb._store.template_versions.find((v) => v.template_id === json.data.id);
+  assert.equal(ver?.created_by, 'a1000000-0000-4000-8000-000000000001');
+  await templateRepo.permanentDeleteTemplate(json.data.id, mockAdminUser.id);
+});
+
 httpServer.closeAllConnections?.();
 await new Promise((resolve) => httpServer.close(resolve));
 console.log('\n========================================================');

@@ -3,7 +3,7 @@ import { verifySmtpConnection } from '../services/smtpService.js';
 
 export async function sendEmail(req, res, next) {
   try {
-    const result = await executeSendIndividualEmail(req.body, req.user);
+    const result = await executeSendIndividualEmail(req.body, req.user, req.admin);
     return res.status(result.statusCode).json(result.body);
   } catch (error) {
     next(error);

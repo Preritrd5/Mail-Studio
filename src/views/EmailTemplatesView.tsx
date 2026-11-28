@@ -90,6 +90,7 @@ export const EmailTemplatesView: React.FC = () => {
   const [deleteConfirmInput, setDeleteConfirmInput] = useState('');
   const [deleteModalError, setDeleteModalError] = useState<string | null>(null);
   const [isDeletingTemplate, setIsDeletingTemplate] = useState(false);
+  const [isSavingTemplate, setIsSavingTemplate] = useState(false);
   const [historyTemplate, setHistoryTemplate] = useState<EmailTemplateItem | null>(null);
   const [selectedVersionSnapshot, setSelectedVersionSnapshot] = useState<TemplateVersionRecord | null>(null);
 
@@ -285,6 +286,7 @@ export const EmailTemplatesView: React.FC = () => {
 
   // Save New Template
   const handleSaveCreate = async () => {
+    if (isSavingTemplate) return;
     let finalHtml = formData.html_content;
     let finalText = formData.text_content;
     if (editorMode === 'blocks') {
@@ -303,6 +305,7 @@ export const EmailTemplatesView: React.FC = () => {
       return;
     }
 
+    setIsSavingTemplate(true);
     try {
       await addTemplate({
         name: formData.name.trim(),
@@ -315,12 +318,14 @@ export const EmailTemplatesView: React.FC = () => {
       setIsCreateModalOpen(false);
     } catch {
       // Toast already displayed by AppContext
+    } finally {
+      setIsSavingTemplate(false);
     }
   };
 
   // Save Edit (Increments version)
   const handleSaveEdit = async () => {
-    if (!editingTemplate) return;
+    if (!editingTemplate || isSavingTemplate) return;
 
     let finalHtml = formData.html_content;
     let finalText = formData.text_content;
@@ -340,6 +345,7 @@ export const EmailTemplatesView: React.FC = () => {
       return;
     }
 
+    setIsSavingTemplate(true);
     try {
       await updateTemplate(editingTemplate.id, {
         name: formData.name.trim(),
@@ -353,6 +359,8 @@ export const EmailTemplatesView: React.FC = () => {
       setEditingTemplate(null);
     } catch {
       // Toast already displayed by AppContext
+    } finally {
+      setIsSavingTemplate(false);
     }
   };
 
@@ -533,13 +541,6 @@ export const EmailTemplatesView: React.FC = () => {
                 onClick={() => openCreateModal('blank')}
               >
                 Create Template
-              </Button>
-              <Button
-                variant="outline"
-                size="md"
-                onClick={() => openCreateModal('premium')}
-              >
-                Start with Notification Layout
               </Button>
             </div>
           )}
@@ -1174,8 +1175,10 @@ export const EmailTemplatesView: React.FC = () => {
         <Modal
           isOpen={true}
           onClose={() => {
-            setIsCreateModalOpen(false);
-            setEditingTemplate(null);
+            if (!isSavingTemplate) {
+              setIsCreateModalOpen(false);
+              setEditingTemplate(null);
+            }
           }}
           title={
             editingTemplate 
@@ -1193,6 +1196,7 @@ export const EmailTemplatesView: React.FC = () => {
                 <Button 
                   variant="outline" 
                   size="sm" 
+                  disabled={isSavingTemplate}
                   onClick={() => {
                     setIsCreateModalOpen(false);
                     setEditingTemplate(null);
@@ -1203,6 +1207,8 @@ export const EmailTemplatesView: React.FC = () => {
                 <Button 
                   variant="primary" 
                   size="sm" 
+                  isLoading={isSavingTemplate}
+                  disabled={isSavingTemplate}
                   onClick={editingTemplate ? handleSaveEdit : handleSaveCreate}
                   className="font-bold"
                 >
