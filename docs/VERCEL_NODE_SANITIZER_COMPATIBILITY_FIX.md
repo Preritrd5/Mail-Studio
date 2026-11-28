@@ -46,16 +46,19 @@ Downgrading to `sanitize-html@2.17.3` was rejected on security grounds: `sanitiz
 
 ## 3. Changes Implemented
 
-1. **Dependency & Lockfile Alignment (`package.json`, `package-lock.json`):**
+1. **Universal Node `20.x` & `22.x` CJS/ESM Loader Bridge (`backend/src/utils/emailHtmlSanitizer.js`):**
+   - Keeps `sanitize-html@^2.18.2` (`htmlparser2@12.0.0`) with zero downgrades.
+   - Imports `htmlparser2` via standard static ESM (`import * as htmlparser2Module from 'htmlparser2'`) so Node 20.x and Node 22.x both load it cleanly and Vercel's file tracer bundles it.
+   - Pre-populates `require.cache[htmlparser2Entry]` (resolved relative to `sanitize-html`) with `{ ...htmlparser2Module }` before loading `sanitize-html` via `createRequire(import.meta.url)`. As a result, `require('htmlparser2')` inside `sanitize-html/index.js` hits Node's module cache immediately without throwing `ERR_REQUIRE_ESM` even when Vercel executes the function in a Node `20.x` runtime (`--no-experimental-require-module`).
+2. **Dependency & Lockfile Alignment (`package.json`, `package-lock.json`):**
    - Maintained `"sanitize-html": "^2.18.2"` resolving to a single deduped `htmlparser2@12.0.0`.
-   - Set `"engines": { "node": "22.x" }` in root `package.json` (Vercel's supported major runtime selector).
-2. **Version Pinning Files (`.nvmrc`, `.node-version`):**
-   - Added `22.12.0` to `.nvmrc` and `.node-version` matching the minimum Node version required by `sanitize-html@2.18.2` `require(esm)`.
+   - Set `"engines": { "node": "22.x" }` in root `package.json` plus `22.12.0` in `.nvmrc` and `.node-version`.
 3. **Inline CSS & HTML Sanitization Hardening (`backend/src/utils/emailHtmlSanitizer.js`):**
    - Preserved `EMAIL_SANITIZE_OPTIONS` allowlisted tags, attributes, `https`/`http`/`mailto`/`cid` URI schemes, and `<style>` CSS filtering (`sanitizeEmailCssBlock`).
    - Added `sanitizeInlineStyleAttribute` via `transformTags['*']` so inline `style=""` declarations containing `url(...)`, `expression(...)`, `javascript:`, `vbscript:`, `behavior:`, `@import`, or angle brackets are stripped without breaking safe branded email table layout CSS.
-4. **Runtime & Sanitizer Health Verification (`backend/src/controllers/healthController.js`):**
-   - `GET /api/health` now exposes `nodeVersion: process.version` and `sanitize_html_loaded: sanitizerReady` (verifying `sanitizeEmailHtml('<p>ok</p>') === '<p>ok</p>'`) cleanly without exposing secrets.
+4. **Runtime & Sanitizer Health Verification (`api/index.js`, `backend/src/controllers/healthController.js`):**
+   - `GET /api/health` exposes `nodeVersion: process.version` and `sanitize_html_loaded: sanitizerReady` (verifying `sanitizeEmailHtml('<p>ok</p>') === '<p>ok</p>'`) cleanly without exposing secrets.
+   - `api/index.js` also reports `nodeVersion: process.version` in any `SERVERLESS_BOOTSTRAP_FAILED` or `SERVERLESS_INVOCATION_FAILED` diagnostic payload.
 
 ---
 

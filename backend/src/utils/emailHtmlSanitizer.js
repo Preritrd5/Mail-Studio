@@ -1,4 +1,25 @@
-import sanitizeHtml from 'sanitize-html';
+import { createRequire } from 'node:module';
+import * as htmlparser2Module from 'htmlparser2';
+
+// Bridge sanitize-html (CommonJS) -> htmlparser2@12 (ESM) across all Node 20.x and 22.x runtimes.
+// Pre-seeding Node's CJS module cache for htmlparser2 satisfies require('htmlparser2') inside
+// sanitize-html/index.js even on runtimes where synchronous require(esm) is disabled (Node < 22.12).
+const require = createRequire(import.meta.url);
+const sanitizeHtmlEntry = require.resolve('sanitize-html');
+const requireFromSanitizer = createRequire(sanitizeHtmlEntry);
+const htmlparser2Entry = requireFromSanitizer.resolve('htmlparser2');
+
+if (!require.cache[htmlparser2Entry]) {
+  require.cache[htmlparser2Entry] = {
+    id: htmlparser2Entry,
+    filename: htmlparser2Entry,
+    loaded: true,
+    exports: { ...htmlparser2Module },
+  };
+}
+
+const sanitizeHtmlImport = require('sanitize-html');
+const sanitizeHtml = typeof sanitizeHtmlImport === 'function' ? sanitizeHtmlImport : sanitizeHtmlImport.default;
 
 const UNSAFE_CSS_PATTERN = /(@import|expression\s*\(|javascript:|vbscript:|behavior\s*:|url\s*\(|<|>)/i;
 

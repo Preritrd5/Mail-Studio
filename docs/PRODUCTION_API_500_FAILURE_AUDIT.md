@@ -50,7 +50,9 @@ Live HTTP probing of `https://emaildraft.vercel.app` returned `500` across all 9
 ### Root Cause 3 — Vercel Node Runtime Incompatibility with `sanitize-html` ESM Dependency
 - Local development runs Node `v22.21.1`, whereas Vercel defaulted to Node `20.x` because `package.json` lacked `engines`. `sanitize-html@2.18.2` (CommonJS) calls `require('htmlparser2')`, where `htmlparser2@12.0.0` is an ES Module requiring Node `>=22.12.0` (`require(esm)`).
 - Every serverless cold start threw `ERR_REQUIRE_ESM`, turning every `/api/*` request into `500 SERVERLESS_BOOTSTRAP_FAILED`.
-- **Fix:** Added `"engines": { "node": "22.x" }` in `package.json`, `.nvmrc` (`22.12.0`), `.node-version` (`22.12.0`), restored `sanitize-html@^2.18.2`, and added `nodeVersion: process.version` and `sanitize_html_loaded` telemetry to `GET /api/health`. (See `docs/VERCEL_NODE_SANITIZER_COMPATIBILITY_FIX.md`.)
+- **Fix:**
+  - Added `"engines": { "node": "22.x" }` in `package.json`, `.nvmrc` (`22.12.0`), `.node-version` (`22.12.0`), restored `sanitize-html@^2.18.2`, and added `nodeVersion: process.version` and `sanitize_html_loaded` telemetry to `GET /api/health`.
+  - Updated `backend/src/utils/emailHtmlSanitizer.js` to load `htmlparser2` as static ESM and seed Node's `require.cache` prior to loading `sanitize-html`, preventing `ERR_REQUIRE_ESM` on **both Node 20.x and Node 22.x** even if Vercel's runtime remains on Node 20.x. (See `docs/VERCEL_NODE_SANITIZER_COMPATIBILITY_FIX.md`.)
 
 ### Root Cause 4 — Authorization & Error Handling Hardening
 - **Strict Admin RBAC (`backend/src/middleware/auth.js`):** Removed insecure fallbacks trusting user-editable `user_metadata` or email substrings. `resolveAdminAuth` validates the Supabase JWT via `supabaseAdmin.auth.getUser`, then verifies `public.admin_users` or server-only `app_metadata.role === 'administrator'`, failing closed with `503 DATABASE_SCHEMA_MISSING` / `DATABASE_UNAVAILABLE` on DB failures and `403 FORBIDDEN` on unauthorized accounts.

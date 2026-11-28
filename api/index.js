@@ -20,6 +20,7 @@ export default async function handler(req, res) {
         success: false,
         error: {
           code: 'SERVERLESS_BOOTSTRAP_FAILED',
+          nodeVersion: process.version,
           message: cachedBootError?.message || 'Failed to initialize Express application.',
         },
       })
@@ -51,6 +52,7 @@ export default async function handler(req, res) {
             success: false,
             error: {
               code: 'SERVERLESS_INVOCATION_FAILED',
+              nodeVersion: process.version,
               message: err?.message || 'Unhandled server error.',
             },
           })
