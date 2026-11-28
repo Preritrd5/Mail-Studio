@@ -79,7 +79,7 @@ export const DashboardView: React.FC = () => {
       setSystemStatus(null);
       setLoadIssue({
         kind: 'auth_required',
-        message: 'Sign in as an administrator to view live campaign metrics, system telemetry, and email activity.',
+        message: 'Not signed in — Please sign in first as an administrator to view live campaign metrics, system telemetry, and email activity.',
         statusCode: 401,
         errorCode: 'AUTH_REQUIRED',
       });

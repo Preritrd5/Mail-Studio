@@ -29,10 +29,10 @@
   - Kept `isInitializing = true` until both `supabase.auth.getSession()` and backend `/api/auth/session` administrator verification complete.
   - Added `statusCode` classification in `AuthService.verifyAdminStatus()`: HTTP `401` marks `sessionExpired = true` and clears the invalid session cleanly; authenticated non-admin accounts retain `isAdmin = false` and surface `authError` without granting access to protected sections.
   - Preserved current URL state during `TOKEN_REFRESHED` / `USER_UPDATED` events without resetting `isInitializing` or triggering redirects.
-- **`src/components/auth/ProtectedRoute.tsx` & `src/views/LoginView.tsx`:**
-  - Centralized `<ProtectedRoute />` blocks protected content while `isInitializing === true` with `<AuthRestorationScreen />` (using `LoadingSpinner` and static SNPSUNEXUS logo — no Dashboard or Login flash).
-  - Unauthenticated or expired sessions redirect to `/login?redirect=<encoded pathname + search + hash>`, preventing open redirects via `getSafeRedirectTarget()`.
-  - After administrator authentication on `/login`, the user is navigated directly back to the decoded `redirect` target (`replace: true`).
+- **`src/components/auth/ProtectedRoute.tsx` & `src/App.tsx`:**
+  - Keeps users on the main Mail Studio website shell (`Sidebar` + `Header` + `AdminLoginModal`) rather than trapping them on a standalone `/login` screen (visiting `/login` cleanly moves to `/dashboard` and opens the Sign-In modal).
+  - **Dashboard (`/dashboard` & `/`):** Accessible directly in the earlier layout: when not signed in, displays all KPI counters at `0` / `0.0%` alongside the `"Not signed in — Please sign in first..."` notice and Header **Sign In** button (`AdminLoginModal`).
+  - **Restricted Sections (`/compose`, `/bulk-import`, `/queue`, `/activity`, `/templates`, `/reports`):** Centralized `<ProtectedRoute />` inside `<MainAppShell>` waits for `isInitializing === false` (`AuthRestorationScreen`), preserves the exact current URL (`pathname + search + hash`) across refreshes, displays a crisp `"Not Signed In — First Sign In"` card with a **Sign In to Continue** button opening `AdminLoginModal` until authenticated, and immediately renders the requested section once signed in as a verified administrator.
 
 ---
 
@@ -84,8 +84,7 @@
 - `src/routes/routeConfig.ts` *(new)*
 - `src/context/AuthContext.tsx`
 - `src/services/authService.ts`
-- `src/components/auth/ProtectedRoute.tsx` *(new)*
-- `src/views/LoginView.tsx` *(new)*
+- **`src/components/auth/ProtectedRoute.tsx` *(new)*, **`src/views/DashboardView.tsx`**
 - `src/context/AppContext.tsx`
 - `src/hooks/useUrlQueryState.ts` *(new)*
 - `src/views/ComposeEmailView.tsx`

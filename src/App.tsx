@@ -1,15 +1,16 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { AlertTriangle } from 'lucide-react';
 import { AppProvider, useApp } from './context/AppContext';
-import { AuthProvider } from './context/AuthContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { Sidebar } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
 import { ToastContainer } from './components/common/ToastContainer';
 import { AdminLoginModal } from './components/auth/AdminLoginModal';
-import { ProtectedRoute } from './components/auth/ProtectedRoute';
+import { ProtectedRoute, AuthRestorationScreen } from './components/auth/ProtectedRoute';
 import { Card } from './components/common/Card';
 import { Button } from './components/common/Button';
+import { getSafeRedirectTarget } from './routes/routeConfig';
 
 // Views
 import { DashboardView } from './views/DashboardView';
@@ -19,11 +20,42 @@ import { SendingQueueView } from './views/SendingQueueView';
 import { EmailActivityView } from './views/EmailActivityView';
 import { EmailTemplatesView } from './views/EmailTemplatesView';
 import { ReportsView } from './views/ReportsView';
-import { LoginView } from './views/LoginView';
 
 function PreserveSearchHashRedirect({ to }: { to: string }) {
   const location = useLocation();
   return <Navigate to={`${to}${location.search}${location.hash}`} replace />;
+}
+
+/**
+ * Legacy/direct /login handler: moves cleanly to Dashboard (or target redirect)
+ * on the main website and opens the in-app Administrator Sign-In modal if signed out.
+ */
+function LoginModalRedirect() {
+  const location = useLocation();
+  const { user, isInitializing, openAuthModal } = useAuth();
+  const params = new URLSearchParams(location.search);
+  const target = getSafeRedirectTarget(params.get('redirect'), '/dashboard');
+
+  useEffect(() => {
+    if (!isInitializing && !user) {
+      openAuthModal();
+    }
+  }, [isInitializing, user, openAuthModal]);
+
+  return <Navigate to={target} replace />;
+}
+
+/**
+ * Renders Dashboard cleanly after auth initialization finishes:
+ * - Signed out -> earlier zeroed metrics layout (0, 0.0%) + Sign In prompt & Header modal
+ * - Signed in -> live dashboard telemetry
+ */
+function DashboardRouteEntry() {
+  const { isInitializing } = useAuth();
+  if (isInitializing) {
+    return <AuthRestorationScreen />;
+  }
+  return <DashboardView />;
 }
 
 function NotFoundView() {
@@ -68,7 +100,7 @@ function MainAppShell() {
           isSidebarCollapsed ? 'lg:pl-20' : 'lg:pl-64'
         }`}
       >
-        {/* Top Sticky Header */}
+        {/* Top Sticky Header with Sign-In / Profile Menu */}
         <Header />
 
         {/* Section View Container */}
@@ -97,7 +129,7 @@ function MainAppShell() {
         </footer>
       </div>
 
-      {/* Admin Login Modal (available if re-authentication is ever requested inline) */}
+      {/* Original In-App Administrator Sign-In Modal */}
       <AdminLoginModal />
     </div>
   );
@@ -109,15 +141,16 @@ export function App() {
       <AuthProvider>
         <AppProvider>
           <Routes>
-            {/* Public Administrator Login Route */}
-            <Route path="/login" element={<LoginView />} />
+            <Route element={<MainAppShell />}>
+              {/* Dashboard stays accessible on the site: shows 0s & Sign-In notice until authenticated */}
+              <Route path="/" element={<PreserveSearchHashRedirect to="/dashboard" />} />
+              <Route path="/dashboard" element={<DashboardRouteEntry />} />
+              <Route path="/dashboard/*" element={<DashboardRouteEntry />} />
+              <Route path="/login" element={<LoginModalRedirect />} />
+              <Route path="/login/*" element={<LoginModalRedirect />} />
 
-            {/* Protected Administrator Workspace Routes */}
-            <Route element={<ProtectedRoute />}>
-              <Route element={<MainAppShell />}>
-                <Route path="/" element={<PreserveSearchHashRedirect to="/dashboard" />} />
-                <Route path="/dashboard" element={<DashboardView />} />
-                <Route path="/dashboard/*" element={<DashboardView />} />
+              {/* Restricted sections: preserve URL on refresh, show Not Signed In / First Sign In gate until authenticated */}
+              <Route element={<ProtectedRoute />}>
                 <Route path="/compose" element={<ComposeEmailView />} />
                 <Route path="/compose/*" element={<ComposeEmailView />} />
                 <Route path="/bulk-import" element={<BulkImportView />} />
@@ -136,8 +169,9 @@ export function App() {
                 <Route path="/email-templates/*" element={<EmailTemplatesView />} />
                 <Route path="/reports" element={<ReportsView />} />
                 <Route path="/reports/*" element={<ReportsView />} />
-                <Route path="*" element={<NotFoundView />} />
               </Route>
+
+              <Route path="*" element={<NotFoundView />} />
             </Route>
           </Routes>
 
