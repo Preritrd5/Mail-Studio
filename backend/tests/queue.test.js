@@ -446,6 +446,111 @@ await runTest('40. Zero secret leakage across queue status and events responses'
   assert.ok(!text.includes(config.supabaseSecretKey));
 });
 
+// 41. Automatic step execution prevents overlapping concurrent claims (CAS + mutex)
+await runTest('41. Concurrent /queue/step invocations serialize cleanly without duplicate claims', async () => {
+  const sentEmails = [];
+  setSmtpTransporter({
+    verify: async () => true,
+    sendMail: async (mailOptions) => {
+      await new Promise((r) => setTimeout(r, 80));
+      sentEmails.push(mailOptions.to);
+      return { messageId: `<concurrent-auto-${sentEmails.length}@snpsu.edu.in>`, response: '250 2.0.0 OK' };
+    },
+  });
+
+  // Isolate queue store to a fresh 2-recipient bulk campaign
+  for (const camp of testClient._store.campaigns) {
+    if (['queued', 'running'].includes(camp.status)) camp.status = 'paused';
+  }
+  const autoCampId = 'c1000000-0000-4000-8000-000000000099';
+  testClient._store.campaigns.push({
+    id: autoCampId,
+    campaign_name: 'Auto 5s Batch Campaign',
+    campaign_type: 'bulk',
+    subject: 'Auto Notice — {{recipient_name}}',
+    status: 'queued',
+    total_recipients: 2,
+    sent_count: 0,
+    failed_count: 0,
+    pending_count: 2,
+    outcome_unknown_count: 0,
+    template_snapshot: {
+      subject: 'Auto Notice — {{recipient_name}}',
+      html_content: '<p>Hello {{recipient_name}}</p>',
+      text_content: 'Hello {{recipient_name}}',
+    },
+    created_at: new Date().toISOString(),
+  });
+  testClient._store.campaign_recipients.push(
+    {
+      id: 'rec-auto-1',
+      campaign_id: autoCampId,
+      recipient_name: 'First Auto User',
+      recipient_email: 'first.auto@snpsu.edu.in',
+      status: 'pending',
+      attempt_count: 0,
+      created_at: new Date(Date.now() - 2000).toISOString(),
+    },
+    {
+      id: 'rec-auto-2',
+      campaign_id: autoCampId,
+      recipient_name: 'Second Auto User',
+      recipient_email: 'second.auto@snpsu.edu.in',
+      status: 'pending',
+      attempt_count: 0,
+      created_at: new Date(Date.now() - 1000).toISOString(),
+    }
+  );
+  await queueRepository.releaseStepSlot('vercel-auto-dispatcher', 'idle', {
+    next_send_allowed_at: new Date(Date.now() - 1000).toISOString(),
+  });
+
+  const [stepA, stepB] = await Promise.all([
+    queueService.executeSingleQueueStep('vercel-auto-dispatcher'),
+    queueService.executeSingleQueueStep('vercel-auto-dispatcher'),
+  ]);
+
+  const statuses = [stepA.status, stepB.status].sort();
+  assert.deepEqual(statuses, ['in_progress', 'processed']);
+  assert.equal(sentEmails.length, 1);
+});
+
+// 42. Automatic sequential progression honors 5s interval and completes remaining recipients
+await runTest('42. Sequential auto-dispatch enforces 5s waiting_interval then processes recipient #2 to completion', async () => {
+  const immediateStep = await queueService.executeSingleQueueStep('vercel-auto-dispatcher');
+  assert.equal(immediateStep.status, 'waiting_interval');
+  assert.ok(immediateStep.remainingMs > 0);
+
+  // Advance cooldown expiry cleanly to simulate 5.0s elapsed
+  await queueRepository.updateWorkerState({
+    next_send_allowed_at: new Date(Date.now() - 100).toISOString(),
+  });
+
+  const httpStepRes = await fetch(`http://127.0.0.1:${TEST_PORT}/api/queue/step`, {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer demo-admin-token' },
+  });
+  assert.equal(httpStepRes.status, 200);
+  const httpStepJson = await httpStepRes.json();
+  assert.equal(httpStepJson.success, true);
+  assert.equal(httpStepJson.data.status, 'processed');
+  assert.equal(httpStepJson.data.result.outcome, 'sent');
+  assert.ok(httpStepJson.data.worker.auto_dispatch_supported);
+  assert.ok(httpStepJson.data.server_timestamp);
+
+  // Advance cooldown again: queue should now report idle with completed campaign
+  await queueRepository.updateWorkerState({
+    next_send_allowed_at: new Date(Date.now() - 100).toISOString(),
+  });
+  const idleStep = await queueService.executeSingleQueueStep('vercel-auto-dispatcher');
+  assert.equal(idleStep.status, 'idle');
+
+  const details = await queueRepository.getCampaignDetails('c1000000-0000-4000-8000-000000000099');
+  assert.equal(details.campaign.status, 'completed');
+  assert.equal(details.campaign.sent_count, 2);
+  assert.equal(details.campaign.pending_count, 0);
+});
+
 httpServer.closeAllConnections?.();
 await new Promise((resolve) => httpServer.close(resolve));
 console.log('\n========================================================');
@@ -455,5 +560,5 @@ console.log('========================================================');
 if (failedCount > 0) {
   process.exit(1);
 } else {
-  console.log('✓ ALL 40 QUEUE TESTS PASSED SUCCESSFULLY!\n');
+  console.log(`✓ ALL ${passedCount} QUEUE TESTS PASSED SUCCESSFULLY!\n`);
 }

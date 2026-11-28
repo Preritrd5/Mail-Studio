@@ -49,6 +49,85 @@ export class QueueRepository {
   }
 
   /**
+   * Optimistically reserves the singleton step execution slot using lock_generation CAS
+   * so concurrent serverless invocations or browser tabs never dispatch duplicate emails.
+   */
+  async tryReserveStepSlot(workerId, expectedLockGeneration) {
+    const nowIso = new Date().toISOString();
+    const nextGeneration = Number(expectedLockGeneration || 0) + 1;
+
+    let query = supabaseAdmin
+      .from('queue_worker_state')
+      .update({
+        worker_id: workerId,
+        lock_generation: nextGeneration,
+        worker_status: 'active',
+        heartbeat_at: nowIso,
+        updated_at: nowIso,
+      })
+      .eq('id', '00000000-0000-0000-0000-000000000001');
+
+    if (expectedLockGeneration !== null && expectedLockGeneration !== undefined) {
+      query = query.eq('lock_generation', expectedLockGeneration);
+    }
+
+    const { data, error } = await query.select();
+    if (error) {
+      throw createDatabaseError('QueueRepository.tryReserveStepSlot', error);
+    }
+
+    const updatedRow = Array.isArray(data) ? data[0] : data;
+    return updatedRow ? { acquired: true, state: updatedRow } : { acquired: false, state: null };
+  }
+
+  /**
+   * Transitions the singleton worker state safely back to idle or waiting_interval
+   * after an empty poll or unexpected transmission failure.
+   */
+  async releaseStepSlot(workerId, status = 'idle', extraFields = {}) {
+    const nowIso = new Date().toISOString();
+    const { data, error } = await supabaseAdmin
+      .from('queue_worker_state')
+      .update({
+        worker_id: workerId,
+        worker_status: status,
+        current_recipient_id: null,
+        current_attempt_id: null,
+        heartbeat_at: nowIso,
+        updated_at: nowIso,
+        ...extraFields,
+      })
+      .eq('id', '00000000-0000-0000-0000-000000000001')
+      .select()
+      .maybeSingle();
+
+    if (error) {
+      throw createDatabaseError('QueueRepository.releaseStepSlot', error);
+    }
+
+    return data || null;
+  }
+
+  /**
+   * Checks whether any bulk campaign has queued/running work with pending recipients.
+   */
+  async hasPendingBulkWork() {
+    const { data, error } = await supabaseAdmin
+      .from('campaigns')
+      .select('id')
+      .eq('campaign_type', 'bulk')
+      .in('status', ['queued', 'running'])
+      .gt('pending_count', 0)
+      .limit(1);
+
+    if (error) {
+      throw createDatabaseError('QueueRepository.hasPendingBulkWork', error);
+    }
+
+    return Array.isArray(data) && data.length > 0;
+  }
+
+  /**
    * Atomically claim the next pending recipient across queued/running bulk campaigns
    */
   async claimNextRecipient(workerId) {
@@ -304,20 +383,73 @@ export class QueueRepository {
   }
 
   /**
-   * Recover abandoned sending attempts
+   * Recover abandoned sending attempts safely by age threshold (never disrupting fresh active dispatches)
    */
-  async recoverAbandonedAttempts(workerId) {
-    const { data, error } = await supabaseAdmin.rpc('recover_abandoned_queue_attempts', {
-      p_worker_id: workerId,
-    });
+  async recoverAbandonedAttempts(workerId, staleThresholdMs = 90000) {
+    const cutoffIso = new Date(Date.now() - staleThresholdMs).toISOString();
+    const nowIso = new Date().toISOString();
 
-    if (!error && data) {
-      return data;
+    const { data: sendingRecipients, error: findErr } = await supabaseAdmin
+      .from('campaign_recipients')
+      .select('id, campaign_id, claimed_at')
+      .eq('status', 'sending');
+
+    if (findErr) {
+      throw createDatabaseError('QueueRepository.recoverAbandonedAttempts.find', findErr);
     }
-    if (error && !isMissingRpcError(error)) {
-      throw createDatabaseError('QueueRepository.recoverAbandonedAttempts', error);
+
+    const staleRecipients = (sendingRecipients || []).filter(
+      (rec) => rec.claimed_at && rec.claimed_at < cutoffIso
+    );
+
+    if (staleRecipients.length === 0) {
+      return { recovered_count: 0 };
     }
-    return { recovered_count: 0 };
+
+    let recoveredCount = 0;
+    for (const rec of staleRecipients) {
+      await supabaseAdmin
+        .from('email_attempts')
+        .update({
+          status: 'outcome_unknown',
+          completed_at: nowIso,
+          failure_reason: 'Serverless/worker invocation expired before SMTP confirmation.',
+        })
+        .eq('recipient_id', rec.id)
+        .eq('status', 'sending');
+
+      await supabaseAdmin
+        .from('campaign_recipients')
+        .update({
+          status: 'outcome_unknown',
+          failure_reason: 'Execution timed out before delivery confirmation was persisted.',
+          updated_at: nowIso,
+        })
+        .eq('id', rec.id);
+
+      const { data: camp } = await supabaseAdmin
+        .from('campaigns')
+        .select('id, outcome_unknown_count')
+        .eq('id', rec.campaign_id)
+        .maybeSingle();
+
+      if (camp) {
+        await supabaseAdmin
+          .from('campaigns')
+          .update({
+            status: 'needs_review',
+            outcome_unknown_count: (camp.outcome_unknown_count || 0) + 1,
+          })
+          .eq('id', camp.id);
+      }
+
+      await this.recordEvent(rec.campaign_id, rec.id, workerId, 'worker_recovered', {
+        reason: 'Recovered stale sending attempt after timeout threshold.',
+      });
+      recoveredCount += 1;
+    }
+
+    return { recovered_count: recoveredCount };
   }
 
   /**

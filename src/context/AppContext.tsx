@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import {
   NavigationSection,
   EmailTemplateItem,
@@ -11,7 +11,7 @@ import {
 } from '../types';
 import { StorageService } from '../services/storageService';
 import { TemplateService, STANDARD_PLACEHOLDERS } from '../services/templateService';
-import { queueService } from '../services/queueService';
+import { queueService, QueueCampaign, QueueStepResult, WorkerHealth } from '../services/queueService';
 import { useAuth } from './AuthContext';
 
 export interface DataLoadState {
@@ -97,9 +97,15 @@ interface AppContextType {
   retryActivityLog: (id: string) => void;
   campaigns: CampaignSummary[];
 
-  // Real Queue Summary (synced from /api/queue when authenticated; never simulated)
+  // Real Queue Summary & Automatic 5-Second Dispatcher (works across all tabs & Vercel Serverless)
   queueState: QueueState;
+  queueSyncVersion: number;
+  isAutoDispatching: boolean;
+  isQueueStepInFlight: boolean;
+  autoCountdownSeconds: number;
+  lastQueueStepResult: QueueStepResult | null;
   refreshQueueBadge: () => Promise<void>;
+  triggerImmediateQueueStep: () => Promise<QueueStepResult | null>;
   startQueue: () => void;
   pauseQueue: () => void;
   resumeQueue: () => void;
@@ -156,6 +162,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Queue state derived only from live backend telemetry
   const [queueState, setQueueState] = useState<QueueState>(EMPTY_QUEUE_STATE);
+  const [queueWorker, setQueueWorker] = useState<WorkerHealth | null>(null);
+  const [queueCampaigns, setQueueCampaigns] = useState<QueueCampaign[]>([]);
+  const [queueSyncVersion, setQueueSyncVersion] = useState<number>(0);
+  const [isQueueStepInFlight, setIsQueueStepInFlight] = useState<boolean>(false);
+  const [autoCountdownSeconds, setAutoCountdownSeconds] = useState<number>(0);
+  const [lastQueueStepResult, setLastQueueStepResult] = useState<QueueStepResult | null>(null);
+  const [autoRetryNonce, setAutoRetryNonce] = useState<number>(0);
+
+  const isStepInFlightRef = useRef<boolean>(false);
+  const serverClockOffsetMsRef = useRef<number>(0);
+  const hadActiveBulkRef = useRef<boolean>(false);
+  const isAppMountedRef = useRef<boolean>(true);
+
+  useEffect(() => {
+    isAppMountedRef.current = true;
+    return () => {
+      isAppMountedRef.current = false;
+    };
+  }, []);
 
   // Toast helpers
   const removeToast = useCallback((id: string) => {
@@ -218,32 +243,72 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setIsLoadingTemplates(false);
   }, [userId]);
 
-  // Refresh sidebar pending count strictly from live /api/queue when authenticated
+  // Refresh sidebar pending count & auto-dispatcher state from live /api/queue when authenticated
   const refreshQueueBadge = useCallback(async () => {
     if (!userId) {
       setQueueState(EMPTY_QUEUE_STATE);
+      setQueueWorker(null);
+      setQueueCampaigns([]);
+      hadActiveBulkRef.current = false;
       return;
     }
 
     try {
       const status = await queueService.getStatus();
-      const pendingCount = (status.active_campaigns || []).reduce(
+      if (!isAppMountedRef.current) return;
+
+      if (status.server_timestamp) {
+        const parsedServer = Date.parse(status.server_timestamp);
+        if (!Number.isNaN(parsedServer)) {
+          serverClockOffsetMsRef.current = parsedServer - Date.now();
+        }
+      }
+
+      const activeCampaigns = status.active_campaigns || [];
+      setQueueWorker(status.worker || null);
+      setQueueCampaigns(activeCampaigns);
+
+      const pendingCount = activeCampaigns.reduce(
         (acc, c) => acc + (c.pending_count || 0),
         0
       );
-      const sentCount = (status.active_campaigns || []).reduce(
+      const sentCount = activeCampaigns.reduce(
         (acc, c) => acc + (c.sent_count || 0),
         0
       );
-      const failedCount = (status.active_campaigns || []).reduce(
+      const failedCount = activeCampaigns.reduce(
         (acc, c) => acc + (c.failed_count || 0),
         0
       );
-      const totalRecipients = (status.active_campaigns || []).reduce(
+      const totalRecipients = activeCampaigns.reduce(
         (acc, c) => acc + (c.total_recipients || 0),
         0
       );
-      const primary = (status.active_campaigns || [])[0];
+      const primary = activeCampaigns[0];
+      const hasRunningOrQueued = activeCampaigns.some(
+        (c) => (c.status === 'queued' || c.status === 'running') && (c.pending_count || 0) > 0
+      );
+
+      // Announce batch completion automatically when an active auto-dispatched queue reaches 0 pending
+      if (hadActiveBulkRef.current && !hasRunningOrQueued) {
+        const completedBatch = activeCampaigns.find((c) => c.status === 'completed' && c.total_recipients > 0);
+        const needsReviewBatch = activeCampaigns.find((c) => c.status === 'needs_review');
+        if (needsReviewBatch) {
+          addToast({
+            type: 'warning',
+            title: 'Queue Paused for Outcome Audit',
+            message: `"${needsReviewBatch.campaign_name}" encountered an uncertain SMTP response and paused for administrator review.`,
+          });
+        } else if (completedBatch && pendingCount === 0) {
+          addToast({
+            type: 'success',
+            title: 'Campaign Completed',
+            message: `All queued recipients in "${completedBatch.campaign_name}" have been dispatched automatically.`,
+          });
+        }
+      }
+      hadActiveBulkRef.current = hasRunningOrQueued;
+
       setQueueState({
         campaignName: primary?.campaign_name || '',
         totalRecipients,
@@ -252,7 +317,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         failedCount,
         currentRecipientIndex: 0,
         status:
-          status.worker?.worker_status === 'active' || status.worker?.worker_status === 'waiting_interval'
+          hasRunningOrQueued || status.worker?.worker_status === 'active' || status.worker?.worker_status === 'waiting_interval'
             ? 'running'
             : status.worker?.worker_status === 'paused'
             ? 'paused'
@@ -262,10 +327,116 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         rateLimit: 0.2,
         items: [],
       });
+      setQueueSyncVersion((v) => v + 1);
     } catch {
+      if (!isAppMountedRef.current) return;
       setQueueState(EMPTY_QUEUE_STATE);
     }
-  }, [userId]);
+  }, [userId, addToast]);
+
+  const executeAutoQueueStep = useCallback(async (): Promise<QueueStepResult | null> => {
+    if (!userId || isStepInFlightRef.current) return null;
+    isStepInFlightRef.current = true;
+    setIsQueueStepInFlight(true);
+
+    try {
+      const stepRes = await queueService.executeStep();
+      if (!isAppMountedRef.current) return stepRes;
+
+      if (stepRes.server_timestamp) {
+        const parsedServer = Date.parse(stepRes.server_timestamp);
+        if (!Number.isNaN(parsedServer)) {
+          serverClockOffsetMsRef.current = parsedServer - Date.now();
+        }
+      }
+
+      setLastQueueStepResult(stepRes);
+      if (stepRes.worker) {
+        setQueueWorker(stepRes.worker);
+      }
+
+      await refreshQueueBadge();
+      return stepRes;
+    } catch (err: any) {
+      if (!isAppMountedRef.current) return null;
+      const status = err?.statusCode || err?.status;
+      if (status !== 401 && status !== 403) {
+        // Schedule clean retry without silently aborting a 100-email batch on transient network/cold-start hiccups
+        setAutoRetryNonce((n) => n + 1);
+      }
+      return null;
+    } finally {
+      isStepInFlightRef.current = false;
+      if (isAppMountedRef.current) {
+        setIsQueueStepInFlight(false);
+      }
+    }
+  }, [userId, refreshQueueBadge]);
+
+  const hasActiveQueuedWork = queueCampaigns.some(
+    (c) => (c.status === 'queued' || c.status === 'running') && (c.pending_count || 0) > 0
+  );
+  const isDedicatedWorkerRunning =
+    queueWorker?.dispatch_mode === 'dedicated_worker' &&
+    Boolean(queueWorker?.healthy) &&
+    (queueWorker?.seconds_since_heartbeat ?? 999) <= 12;
+  const isAutoDispatching = Boolean(userId && hasActiveQueuedWork);
+
+  // Live 5-second interval countdown ticker (available to all views)
+  useEffect(() => {
+    if (!queueWorker?.next_send_allowed_at) {
+      setAutoCountdownSeconds(0);
+      return;
+    }
+    const updateCountdown = () => {
+      const allowedMs = Date.parse(queueWorker.next_send_allowed_at!);
+      const estimatedServerNow = Date.now() + serverClockOffsetMsRef.current;
+      const diffMs = allowedMs - estimatedServerNow;
+      setAutoCountdownSeconds(Math.max(0, Math.ceil(diffMs / 1000)));
+    };
+    updateCountdown();
+    const timer = window.setInterval(updateCountdown, 500);
+    return () => window.clearInterval(timer);
+  }, [queueWorker?.next_send_allowed_at]);
+
+  // Automatic 5-second sequential dispatcher across all app sections (Vercel Serverless + Local API)
+  useEffect(() => {
+    if (!userId || !hasActiveQueuedWork) return;
+
+    // If a standalone local CLI worker is freshly driving the queue, only sync status periodically
+    if (isDedicatedWorkerRunning) {
+      const pollId = window.setTimeout(() => {
+        void refreshQueueBadge();
+      }, 2500);
+      return () => window.clearTimeout(pollId);
+    }
+
+    let waitMs = 120;
+    if (lastQueueStepResult?.status === 'waiting_interval' || lastQueueStepResult?.status === 'in_progress') {
+      waitMs = Math.max(300, (lastQueueStepResult.remainingMs || 1000) + 150);
+    } else if (queueWorker?.next_send_allowed_at) {
+      const allowedMs = Date.parse(queueWorker.next_send_allowed_at);
+      const estimatedServerNow = Date.now() + serverClockOffsetMsRef.current;
+      waitMs = Math.max(80, allowedMs - estimatedServerNow + 150);
+    }
+
+    const timerId = window.setTimeout(() => {
+      void executeAutoQueueStep();
+    }, Math.min(waitMs, 6500));
+
+    return () => window.clearTimeout(timerId);
+  }, [
+    userId,
+    hasActiveQueuedWork,
+    isDedicatedWorkerRunning,
+    queueWorker?.next_send_allowed_at,
+    queueSyncVersion,
+    autoRetryNonce,
+    lastQueueStepResult?.status,
+    lastQueueStepResult?.remainingMs,
+    executeAutoQueueStep,
+    refreshQueueBadge,
+  ]);
 
   useEffect(() => {
     if (isAuthLoading) return;
@@ -534,7 +705,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         },
         campaigns: [],
         queueState,
+        queueSyncVersion,
+        isAutoDispatching,
+        isQueueStepInFlight,
+        autoCountdownSeconds,
+        lastQueueStepResult,
         refreshQueueBadge,
+        triggerImmediateQueueStep: executeAutoQueueStep,
         startQueue: notifyUseBackendQueue,
         pauseQueue: notifyUseBackendQueue,
         resumeQueue: notifyUseBackendQueue,

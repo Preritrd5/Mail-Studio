@@ -15,8 +15,7 @@ import {
   History,
   ChevronRight,
   Server,
-  Lock,
-  ArrowRight
+  Lock
 } from 'lucide-react';
 import { Card, CardHeader } from '../components/common/Card';
 import { Button } from '../components/common/Button';
@@ -35,7 +34,15 @@ import {
 } from '../services/queueService';
 
 export const SendingQueueView: React.FC = () => {
-  const { addToast } = useApp();
+  const {
+    addToast,
+    queueSyncVersion,
+    isAutoDispatching,
+    isQueueStepInFlight,
+    autoCountdownSeconds,
+    refreshQueueBadge,
+    triggerImmediateQueueStep,
+  } = useApp();
   const { user, isLoading: isAuthLoading } = useAuth();
 
   // State
@@ -55,7 +62,7 @@ export const SendingQueueView: React.FC = () => {
   const [events, setEvents] = useState<QueueEvent[]>([]);
 
   // Action states (granular single-flight tracking so exact clicked button displays spinner)
-  type QueuePendingAction = 'start' | 'pause' | 'resume' | 'step' | 'cancel' | 'resolve' | null;
+  type QueuePendingAction = 'start' | 'pause' | 'resume' | 'cancel' | 'resolve' | null;
   const [pendingAction, setPendingAction] = useState<QueuePendingAction>(null);
   const actionLoading = pendingAction !== null;
   const [isCancelModalOpen, setIsCancelModalOpen] = useState<boolean>(false);
@@ -63,8 +70,9 @@ export const SendingQueueView: React.FC = () => {
   const [resolutionChoice, setResolutionChoice] = useState<'sent' | 'failed'>('sent');
   const [resolutionNotes, setResolutionNotes] = useState<string>('');
 
-  // 5-Second Interval Live Countdown
-  const [countdownSeconds, setCountdownSeconds] = useState<number>(0);
+  // Use authoritative countdown from global auto-dispatcher if active, with local fallback
+  const [localCountdownSeconds, setLocalCountdownSeconds] = useState<number>(0);
+  const countdownSeconds = autoCountdownSeconds > 0 ? autoCountdownSeconds : localCountdownSeconds;
 
   // Concurrency, mounted guard & selection refs to prevent duplicate or stale calls
   const isMountedRef = React.useRef<boolean>(true);
@@ -158,31 +166,31 @@ export const SendingQueueView: React.FC = () => {
     }
   }, [isAuthLoading, user?.id]);
 
-  // Initial load
+  // Initial load and live sync whenever global auto-dispatcher completes a step
   useEffect(() => {
-    loadQueueData();
-  }, [loadQueueData]);
+    loadQueueData(queueSyncVersion > 0);
+  }, [loadQueueData, queueSyncVersion]);
 
-  // Poll only while synced and authenticated (3s during active dispatches, 10s when idle)
+  // Poll when viewing Sending Queue (3s during active dispatches, 10s when idle)
   const hasActiveQueueWork = campaigns.some(c => ['running', 'queued', 'needs_review'].includes(c.status));
   useEffect(() => {
     if (!user?.id || syncStatus !== 'synced') return;
-    const intervalMs = hasActiveQueueWork || worker?.healthy ? 3000 : 10000;
+    const intervalMs = hasActiveQueueWork || isAutoDispatching || worker?.healthy ? 3000 : 10000;
     const timer = setInterval(() => {
       loadQueueData(true);
     }, intervalMs);
     return () => clearInterval(timer);
-  }, [user?.id, syncStatus, hasActiveQueueWork, worker?.healthy, loadQueueData]);
+  }, [user?.id, syncStatus, hasActiveQueueWork, isAutoDispatching, worker?.healthy, loadQueueData]);
 
-  // Calculate 5-second interval countdown every 500ms
+  // Calculate 5-second interval countdown fallback every 500ms
   useEffect(() => {
     const timer = setInterval(() => {
       if (worker?.next_send_allowed_at) {
         const allowedMs = new Date(worker.next_send_allowed_at).getTime();
         const diffMs = allowedMs - Date.now();
-        setCountdownSeconds(Math.max(0, Math.ceil(diffMs / 1000)));
+        setLocalCountdownSeconds(Math.max(0, Math.ceil(diffMs / 1000)));
       } else {
-        setCountdownSeconds(0);
+        setLocalCountdownSeconds(0);
       }
     }, 500);
     return () => clearInterval(timer);
@@ -209,7 +217,7 @@ export const SendingQueueView: React.FC = () => {
     }
   };
 
-  // Start campaign
+  // Start campaign and launch immediate automatic 5-second sequential delivery
   const handleStart = async () => {
     if (!activeCampaign || actionLoading) return;
     setPendingAction('start');
@@ -219,10 +227,12 @@ export const SendingQueueView: React.FC = () => {
       setActiveCampaign(updated);
       addToast({
         type: 'success',
-        title: 'Campaign Queued',
-        message: `"${updated.campaign_name}" is now queued for sequential 5-second delivery.`,
+        title: 'Auto-Dispatch Started',
+        message: `"${updated.campaign_name}" started — dispatching automatically every 5 seconds until completion.`,
       });
-      loadQueueData(true);
+      await refreshQueueBadge();
+      await loadQueueData(true);
+      void triggerImmediateQueueStep();
     } catch (err: any) {
       addToast({ type: 'error', title: 'Start Failed', message: err.message });
     } finally {
@@ -243,6 +253,7 @@ export const SendingQueueView: React.FC = () => {
         title: 'Campaign Paused',
         message: `Execution of "${updated.campaign_name}" has been paused.`,
       });
+      await refreshQueueBadge();
       loadQueueData(true);
     } catch (err: any) {
       addToast({ type: 'error', title: 'Pause Failed', message: err.message });
@@ -251,7 +262,7 @@ export const SendingQueueView: React.FC = () => {
     }
   };
 
-  // Resume campaign
+  // Resume campaign and continue automatic 5-second delivery immediately
   const handleResume = async () => {
     if (!activeCampaign || actionLoading) return;
     setPendingAction('resume');
@@ -261,10 +272,12 @@ export const SendingQueueView: React.FC = () => {
       setActiveCampaign(updated);
       addToast({
         type: 'success',
-        title: 'Campaign Resumed',
-        message: `"${updated.campaign_name}" resumed sequential queue execution.`,
+        title: 'Auto-Dispatch Resumed',
+        message: `"${updated.campaign_name}" resumed automatic 5-second sequential execution.`,
       });
-      loadQueueData(true);
+      await refreshQueueBadge();
+      await loadQueueData(true);
+      void triggerImmediateQueueStep();
     } catch (err: any) {
       addToast({ type: 'error', title: 'Resume Failed', message: err.message });
     } finally {
@@ -286,43 +299,10 @@ export const SendingQueueView: React.FC = () => {
         title: 'Campaign Cancelled',
         message: `Campaign cancelled. Pending recipients marked as failed.`,
       });
+      await refreshQueueBadge();
       loadQueueData(true);
     } catch (err: any) {
       addToast({ type: 'error', title: 'Cancel Failed', message: err.message });
-    } finally {
-      if (isMountedRef.current) setPendingAction(null);
-    }
-  };
-
-  // Execute single manual step (for administrative step dispatch)
-  const handleExecuteStep = async () => {
-    if (actionLoading) return;
-    setPendingAction('step');
-    try {
-      const stepRes = await queueService.executeStep();
-      if (!isMountedRef.current) return;
-      if (stepRes.status === 'waiting_interval') {
-        addToast({
-          type: 'warning',
-          title: 'Mandatory Interval Active',
-          message: `Worker enforcing 5-second pause. Try again in ${Math.ceil(stepRes.remainingMs / 1000)}s.`,
-        });
-      } else if (stepRes.status === 'processed') {
-        addToast({
-          type: 'success',
-          title: 'Step Dispatched',
-          message: `Dispatched recipient with outcome: ${stepRes.result.outcome.toUpperCase()}`,
-        });
-      } else {
-        addToast({
-          type: 'info',
-          title: 'Queue Standby',
-          message: stepRes.message || 'No pending recipients eligible in queue.',
-        });
-      }
-      loadQueueData(true);
-    } catch (err: any) {
-      addToast({ type: 'error', title: 'Step Execution Error', message: err.message });
     } finally {
       if (isMountedRef.current) setPendingAction(null);
     }
@@ -346,6 +326,7 @@ export const SendingQueueView: React.FC = () => {
       });
       setResolvingRecipient(null);
       setResolutionNotes('');
+      await refreshQueueBadge();
       loadQueueData(true);
     } catch (err: any) {
       addToast({ type: 'error', title: 'Resolution Failed', message: err.message });
@@ -374,7 +355,8 @@ export const SendingQueueView: React.FC = () => {
   const currentInFlight = recipients.find(r => r.status === 'sending') || null;
   const nextPendingRecipient = recipients.find(r => r.status === 'pending') || null;
 
-  // Determine Worker Status Label & Dot strictly from verified backend state
+  // Determine Auto-Dispatch & Worker Status Label strictly from verified backend state
+  const autoDispatchSupported = Boolean(worker?.auto_dispatch_supported ?? syncStatus === 'synced');
   const getWorkerStatusInfo = () => {
     if (syncStatus === 'auth_required') {
       return {
@@ -397,7 +379,33 @@ export const SendingQueueView: React.FC = () => {
         countdownText: 'Offline',
       };
     }
-    if (!worker || !worker.healthy) {
+    if (isRunning || isQueued || isAutoDispatching) {
+      return {
+        label: isQueueStepInFlight
+          ? 'Auto-Dispatching Next Email'
+          : countdownSeconds > 0
+          ? 'Auto-Dispatch Active (5s Interval)'
+          : 'Auto-Dispatch Running',
+        sub: `Automatically sending 1 recipient every 5 seconds (${pending} pending). Keep Mail Studio open until completion.`,
+        dotClass: 'bg-emerald-400 animate-pulse',
+        statusColor: 'text-emerald-400',
+        countdownText: isQueueStepInFlight
+          ? 'Sending...'
+          : countdownSeconds > 0
+          ? `${countdownSeconds}s Next`
+          : 'Sending',
+      };
+    }
+    if (isPaused) {
+      return {
+        label: 'Auto-Dispatch Paused',
+        sub: 'Sequential delivery has been paused by administrator. Click Resume to continue every 5 seconds.',
+        dotClass: 'bg-amber-400',
+        statusColor: 'text-amber-400',
+        countdownText: 'Paused',
+      };
+    }
+    if (!worker || (!worker.healthy && !autoDispatchSupported)) {
       return {
         label: 'Worker Offline',
         sub: 'Sequential queue worker process is not currently active.',
@@ -406,39 +414,21 @@ export const SendingQueueView: React.FC = () => {
         countdownText: '—',
       };
     }
-    if (isRunning) {
-      return {
-        label: worker.worker_status === 'waiting_interval' ? 'Waiting for Next Attempt' : 'Worker Running',
-        sub: `Transmitting sequential batch: ${activeCampaign?.campaign_name || 'Active Campaign'}`,
-        dotClass: 'bg-emerald-400 animate-pulse',
-        statusColor: 'text-emerald-400',
-        countdownText: countdownSeconds > 0 ? `${countdownSeconds}s Pausing` : 'Transmitting',
-      };
-    }
-    if (isPaused) {
-      return {
-        label: 'Worker Connected — Paused',
-        sub: 'Sequential dispatch has been paused by administrator.',
-        dotClass: 'bg-amber-400',
-        statusColor: 'text-amber-400',
-        countdownText: 'Paused',
-      };
-    }
     if (campaigns.length === 0 || !activeCampaign || (activeCampaign.pending_count === 0 && !activeCampaign.started_at)) {
       return {
-        label: 'Worker Connected — Idle',
-        sub: 'Global queue worker active. No pending campaigns currently queued.',
+        label: 'Auto-Dispatch Engine Ready',
+        sub: '5-second automatic sequential dispatcher standing by. No pending campaigns currently queued.',
         dotClass: 'bg-blue-400',
         statusColor: 'text-blue-300',
-        countdownText: '—',
+        countdownText: 'Ready (5s)',
       };
     }
     return {
-      label: 'Worker Connected — Ready',
-      sub: `Queued and ready: ${activeCampaign.campaign_name}`,
+      label: 'Auto-Dispatch Engine Ready',
+      sub: `Ready for automatic 5-second delivery: ${activeCampaign.campaign_name}`,
       dotClass: 'bg-emerald-400',
       statusColor: 'text-emerald-400',
-      countdownText: countdownSeconds > 0 ? `${countdownSeconds}s` : 'Ready',
+      countdownText: countdownSeconds > 0 ? `${countdownSeconds}s` : 'Ready (5s)',
     };
   };
 
@@ -468,16 +458,25 @@ export const SendingQueueView: React.FC = () => {
                   {workerInfo.label}
                 </span>
                 <span className="text-xs text-slate-300 whitespace-nowrap">
-                  • Node: {worker?.healthy && worker?.worker_id ? worker.worker_id : 'unavailable'}
+                  • Engine:{' '}
+                  {worker?.healthy && worker?.worker_id
+                    ? worker.worker_id
+                    : autoDispatchSupported && syncStatus === 'synced'
+                    ? worker?.dispatch_mode === 'serverless_auto'
+                      ? 'Vercel Auto-Dispatch (5s)'
+                      : 'API Auto-Dispatch (5s)'
+                    : 'unavailable'}
                 </span>
               </div>
               <p className="text-xs text-slate-300 mt-0.5">
-                {syncStatus !== 'synced' || !worker?.healthy ? (
+                {syncStatus !== 'synced' || (!worker?.healthy && !autoDispatchSupported) ? (
                   <span className={syncStatus === 'failed' ? 'text-rose-200' : 'text-slate-300'}>{workerInfo.sub}</span>
-                ) : (
+                ) : worker?.healthy ? (
                   <>
-                    Lease Generation: <strong className="text-white font-mono">#{worker.lock_generation ?? '—'}</strong> • Heartbeat: {worker.heartbeat_at ? new Date(worker.heartbeat_at).toLocaleTimeString() : 'None'} • Active Workers: <strong className="text-emerald-400">{worker.active_workers_count ?? 1}</strong>
+                    {workerInfo.sub} • Lease: <strong className="text-white font-mono">#{worker.lock_generation ?? '—'}</strong> • Heartbeat: {worker.heartbeat_at ? new Date(worker.heartbeat_at).toLocaleTimeString() : 'Active'}
                   </>
+                ) : (
+                  <span className="text-slate-200">{workerInfo.sub}</span>
                 )}
               </p>
             </div>
@@ -692,20 +691,18 @@ export const SendingQueueView: React.FC = () => {
                 </Button>
               ) : null}
 
-              {/* Step trigger */}
-              <Button
-                variant="outline"
-                size="md"
-                isLoading={pendingAction === 'step'}
-                loadingText="Sending Step..."
-                icon={<ArrowRight size={16} />}
-                onClick={handleExecuteStep}
-                disabled={actionLoading || isCompleted || isCancelled}
-                className="bg-white/10 hover:bg-white/20 text-white border-white/20"
-                title="Manually dispatch one sequential recipient if interval allowed"
-              >
-                Send Next
-              </Button>
+              {(isRunning || isQueued || isAutoDispatching) && (
+                <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/20 border border-emerald-400/30 text-emerald-200 text-xs font-semibold">
+                  <LoadingSpinner size="sm" tone="light" label="Auto-dispatching every 5 seconds" />
+                  <span>
+                    {isQueueStepInFlight
+                      ? 'Sending Email...'
+                      : countdownSeconds > 0
+                      ? `Next in ${countdownSeconds}s`
+                      : 'Auto-Dispatching (5s)'}
+                  </span>
+                </span>
+              )}
 
               <Button
                 variant="outline"
@@ -781,8 +778,9 @@ export const SendingQueueView: React.FC = () => {
                   dot
                 >
                   {syncStatus === 'failed' ? 'Worker Offline' :
-                   countdownSeconds > 0 ? `Rate Pause (${countdownSeconds}s)` :
-                   isRunning ? 'Transmitting TLS' : 'Queue Idle'}
+                   isQueueStepInFlight ? 'Transmitting TLS' :
+                   countdownSeconds > 0 ? `Auto-Next (${countdownSeconds}s)` :
+                   isRunning || isQueued ? 'Auto-Dispatching' : 'Queue Idle'}
                 </Badge>
               }
             />
@@ -860,7 +858,7 @@ export const SendingQueueView: React.FC = () => {
                 <h4 className="text-sm font-semibold text-[#172E58]">No Active In-Flight Recipient</h4>
                 <p className="text-xs text-[#64748B] max-w-sm mx-auto">
                   {nextPendingRecipient
-                    ? `Next queued recipient: ${nextPendingRecipient.recipient_name} (${nextPendingRecipient.recipient_email}). Start the campaign when the queue worker is connected.`
+                    ? `Next queued recipient: ${nextPendingRecipient.recipient_name} (${nextPendingRecipient.recipient_email}). Click Start Sequential Send to dispatch all recipients automatically every 5 seconds.`
                     : 'No recipient is currently claimed for SMTP dispatch.'}
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 mt-2 border-t border-[#CBD5E1] text-xs text-left">
@@ -906,7 +904,7 @@ export const SendingQueueView: React.FC = () => {
                 <div className="flex justify-between py-1 border-b border-[#CBD5E1]">
                   <span className="text-[#64748B]">Effective Throughput Ceiling</span>
                   <span className="font-semibold text-[#172E58]">
-                    {syncStatus === 'synced' && worker?.healthy && worker?.policy?.mandatory_interval_seconds
+                    {syncStatus === 'synced' && worker?.policy?.mandatory_interval_seconds
                       ? `${Math.floor(60 / worker.policy.mandatory_interval_seconds)} emails / min max`
                       : 'Paused / Unverified'}
                   </span>
@@ -917,6 +915,8 @@ export const SendingQueueView: React.FC = () => {
                     <span className="font-semibold text-rose-600">Unverified</span>
                   ) : worker?.healthy ? (
                     <span className="font-semibold text-emerald-700">Lease Active (#{worker.lock_generation ?? '—'})</span>
+                  ) : autoDispatchSupported ? (
+                    <span className="font-semibold text-emerald-700">Atomic DB Lock + Auto-Dispatch</span>
                   ) : (
                     <span className="font-semibold text-amber-600">No Active Lease</span>
                   )}
@@ -925,7 +925,7 @@ export const SendingQueueView: React.FC = () => {
                   <span className="text-[#64748B]">Concurrently Active Workers</span>
                   <span className="font-semibold text-[#1456AD]">
                     {syncStatus === 'synced' && worker
-                      ? `${worker.active_workers_count ?? 0} Active (Limit: ${worker.policy?.concurrency_limit ?? 1})`
+                      ? `${worker.active_workers_count || (isAutoDispatching ? 1 : 0)} Active (Limit: ${worker.policy?.concurrency_limit ?? 1})`
                       : '0 Verified'}
                   </span>
                 </div>

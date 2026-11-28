@@ -137,36 +137,115 @@ export class QueueService {
     };
   }
 
+  constructor() {
+    this.activeStepPromise = null;
+  }
+
+  getDefaultAutoWorkerId() {
+    return config.isServerless ? 'vercel-auto-dispatcher' : 'api-auto-dispatcher';
+  }
+
   /**
-   * Run a single step: checks interval -> claims -> processes -> finalizes
+   * Run a single step atomically: checks active lock -> recovers stale slots -> enforces 5s cooldown -> claims -> dispatches
    */
-  async executeSingleQueueStep(workerId) {
-    // 1. Check interval from worker state
-    const state = await queueRepository.getWorkerState();
-    if (state && state.next_send_allowed_at) {
-      const allowedTime = new Date(state.next_send_allowed_at).getTime();
-      const remainingMs = allowedTime - Date.now();
-      if (remainingMs > 0) {
-        return {
-          status: 'waiting_interval',
-          remainingMs,
-          nextSendAllowedAt: state.next_send_allowed_at,
-        };
+  async executeSingleQueueStep(workerId = this.getDefaultAutoWorkerId()) {
+    if (this.activeStepPromise) {
+      return {
+        status: 'in_progress',
+        remainingMs: 1000,
+        message: 'A sequential recipient transmission is already in progress.',
+      };
+    }
+
+    const runner = async () => {
+      const effectiveWorkerId = workerId || this.getDefaultAutoWorkerId();
+      const state = await queueRepository.getWorkerState();
+
+      if (state) {
+        const heartbeatMs = state.heartbeat_at ? new Date(state.heartbeat_at).getTime() : 0;
+        const heartbeatAgeMs = heartbeatMs ? Date.now() - heartbeatMs : Infinity;
+
+        // If another invocation holds an active fresh transmission lock, yield cleanly
+        if (state.worker_status === 'active' && heartbeatAgeMs < 30000) {
+          return {
+            status: 'in_progress',
+            remainingMs: 1000,
+            message: 'Another sequential recipient transmission is currently in progress.',
+          };
+        }
+
+        // Recover stale crashed serverless step (> 45s without heartbeat)
+        if (state.worker_status === 'active' && heartbeatAgeMs >= 45000) {
+          await queueRepository.recoverAbandonedAttempts(effectiveWorkerId, 45000);
+          await queueRepository.releaseStepSlot(effectiveWorkerId, 'idle');
+        }
+
+        // Enforce mandatory 5-second interval between attempts
+        if (state.next_send_allowed_at) {
+          const allowedTime = new Date(state.next_send_allowed_at).getTime();
+          const remainingMs = allowedTime - Date.now();
+          if (remainingMs > 0) {
+            return {
+              status: 'waiting_interval',
+              remainingMs,
+              nextSendAllowedAt: state.next_send_allowed_at,
+            };
+          }
+        }
+
+        // Optimistically reserve the step slot via lock_generation CAS across distributed instances
+        const reservation = await queueRepository.tryReserveStepSlot(effectiveWorkerId, state.lock_generation);
+        if (!reservation.acquired) {
+          return {
+            status: 'in_progress',
+            remainingMs: 1000,
+            message: 'Concurrent step claim detected; yielding to active dispatch.',
+          };
+        }
       }
-    }
 
-    // 2. Claim next recipient
-    const claim = await queueRepository.claimNextRecipient(workerId);
-    if (!claim || !claim.has_work) {
-      return { status: 'idle', message: 'No queued bulk emails pending.' };
-    }
+      let finalizedOrIdle = false;
+      try {
+        // Claim next eligible FIFO recipient (1 recipient at a time)
+        const claim = await queueRepository.claimNextRecipient(effectiveWorkerId);
+        if (!claim || !claim.has_work) {
+          await queueRepository.releaseStepSlot(effectiveWorkerId, 'idle', {
+            current_campaign_id: null,
+          });
+          finalizedOrIdle = true;
+          return { status: 'idle', message: 'No queued bulk emails pending.' };
+        }
 
-    // 3. Process claimed recipient
-    const result = await this.processClaimedRecipient(claim, workerId);
-    return {
-      status: 'processed',
-      result,
+        const result = await this.processClaimedRecipient(claim, effectiveWorkerId);
+        finalizedOrIdle = true;
+        return {
+          status: 'processed',
+          result,
+          nextSendAllowedAt: result.nextSendAllowedAt,
+          policy: {
+            mandatory_interval_seconds: 5,
+          },
+        };
+      } finally {
+        if (!finalizedOrIdle) {
+          // Ensure worker state does not remain locked in 'active' if an unexpected error aborted early
+          try {
+            await queueRepository.releaseStepSlot(effectiveWorkerId, 'waiting_interval', {
+              next_send_allowed_at: new Date(Date.now() + 5000).toISOString(),
+            });
+          } catch {
+            // Preserve original exception
+          }
+        }
+      }
     };
+
+    this.activeStepPromise = runner();
+    try {
+      return await this.activeStepPromise;
+    } finally {
+      this.activeStepPromise = null;
+    }
   }
 
   /**
@@ -180,18 +259,26 @@ export class QueueService {
       workerState?.worker_id && workerState.worker_id !== 'unassigned' ? workerState.worker_id : null;
 
     let isWorkerHealthy = false;
+    let isDedicatedWorker = false;
     let secondsSinceHeartbeat = null;
 
     if (workerState && assignedWorkerId && workerState.heartbeat_at) {
       secondsSinceHeartbeat = Math.floor((Date.now() - new Date(workerState.heartbeat_at).getTime()) / 1000);
       isWorkerHealthy =
         secondsSinceHeartbeat <= 30 && ['active', 'waiting_interval', 'idle'].includes(workerState.worker_status);
+      isDedicatedWorker = isWorkerHealthy && assignedWorkerId.startsWith('worker-');
     }
 
     return {
       healthy: isWorkerHealthy,
       worker_id: assignedWorkerId,
       worker_status: isWorkerHealthy ? workerState.worker_status : 'offline',
+      dispatch_mode: isDedicatedWorker
+        ? 'dedicated_worker'
+        : config.isServerless
+        ? 'serverless_auto'
+        : 'api_auto',
+      auto_dispatch_supported: true,
       heartbeat_at: assignedWorkerId ? workerState?.heartbeat_at || null : null,
       seconds_since_heartbeat: secondsSinceHeartbeat,
       next_send_allowed_at: workerState?.next_send_allowed_at || null,

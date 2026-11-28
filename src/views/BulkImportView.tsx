@@ -704,6 +704,15 @@ export const BulkImportView: React.FC = () => {
               Start Another Import
             </Button>
             <Button
+              variant="gold"
+              size="md"
+              icon={<ArrowRight size={16} />}
+              onClick={() => navigateTo('sending-queue')}
+              className="font-bold"
+            >
+              Open Sending Queue
+            </Button>
+            <Button
               variant="primary"
               size="md"
               icon={<ArrowRight size={16} />}

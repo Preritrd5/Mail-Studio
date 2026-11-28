@@ -1,5 +1,4 @@
 import { queueService } from '../queue/queueService.js';
-import { globalWorkerLock } from '../queue/workerLock.js';
 
 export async function getQueueStatusHandler(req, res, next) {
   try {
@@ -148,11 +147,16 @@ export async function resolveOutcomeUnknownHandler(req, res, next) {
 
 export async function executeStepHandler(req, res, next) {
   try {
-    const workerId = globalWorkerLock.getWorkerId();
+    const workerId = queueService.getDefaultAutoWorkerId();
     const result = await queueService.executeSingleQueueStep(workerId);
+    const worker = await queueService.getQueueHealth();
     res.json({
       success: true,
-      data: result,
+      data: {
+        ...result,
+        worker,
+        server_timestamp: new Date().toISOString(),
+      },
     });
   } catch (err) {
     next(err);

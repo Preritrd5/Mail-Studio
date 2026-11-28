@@ -4,6 +4,8 @@ export interface WorkerHealth {
   healthy: boolean;
   worker_id: string | null;
   worker_status: 'idle' | 'active' | 'waiting_interval' | 'paused' | 'stopping' | 'stopped' | 'failed' | 'offline';
+  dispatch_mode?: 'dedicated_worker' | 'serverless_auto' | 'api_auto';
+  auto_dispatch_supported?: boolean;
   heartbeat_at: string | null;
   seconds_since_heartbeat: number | null;
   next_send_allowed_at: string | null;
@@ -23,6 +25,22 @@ export interface WorkerHealth {
     concurrency_limit: number;
     smtp_tls_strict: boolean;
   };
+}
+
+export interface QueueStepResult {
+  status: 'processed' | 'waiting_interval' | 'idle' | 'in_progress';
+  remainingMs?: number;
+  nextSendAllowedAt?: string;
+  message?: string;
+  result?: {
+    attemptId: string;
+    outcome: 'sent' | 'failed' | 'outcome_unknown';
+    messageId?: string | null;
+    failureReason?: string | null;
+    nextSendAllowedAt?: string;
+  };
+  worker?: WorkerHealth;
+  server_timestamp?: string;
 }
 
 export interface QueueCampaign {
@@ -133,8 +151,8 @@ export const queueService = {
     return res.data;
   },
 
-  async executeStep(): Promise<any> {
-    const res = await fetchApiEnvelope('/queue/step', { method: 'POST' });
+  async executeStep(): Promise<QueueStepResult> {
+    const res = await fetchApiEnvelope<QueueStepResult>('/queue/step', { method: 'POST' });
     return res.data;
   },
 };

@@ -1,6 +1,39 @@
 import { app } from './app.js';
 import { config } from './config/env.js';
 import { verifySmtpConnection } from './services/smtpService.js';
+import { queueService } from './queue/queueService.js';
+import { queueRepository } from './queue/queueRepository.js';
+
+function startEmbeddedLocalQueueRunner() {
+  if (config.isServerless || process.env.NODE_ENV === 'test') return;
+
+  const runnerWorkerId = 'local-server-auto-dispatcher';
+  let ticking = false;
+
+  const timer = setInterval(async () => {
+    if (ticking) return;
+    ticking = true;
+    try {
+      const hasWork = await queueRepository.hasPendingBulkWork();
+      if (!hasWork) return;
+
+      const health = await queueService.getQueueHealth();
+      // Yield if a standalone CLI worker is freshly active
+      if (health.dispatch_mode === 'dedicated_worker' && (health.seconds_since_heartbeat ?? 999) <= 15) {
+        return;
+      }
+
+      await queueService.executeSingleQueueStep(runnerWorkerId);
+    } catch {
+      // Non-fatal in background ticker; next tick or client dispatcher retries cleanly
+    } finally {
+      ticking = false;
+    }
+  }, 1500);
+
+  if (timer.unref) timer.unref();
+  console.log('✓ Embedded local sequential queue auto-runner active (5-second SMTP interval)');
+}
 
 async function startServer() {
   if (!config.supabaseUrl || !config.supabaseSecretKey) {
@@ -40,6 +73,7 @@ async function startServer() {
     console.log(`✓ Email activity endpoints: http://localhost:${config.port}/api/activity`);
     console.log(`✓ Reports & export endpoints: http://localhost:${config.port}/api/reports`);
     console.log('========================================================');
+    startEmbeddedLocalQueueRunner();
   });
 
   return server;
